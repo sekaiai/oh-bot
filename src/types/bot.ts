@@ -53,6 +53,43 @@ export interface SendMessageParams {
 export type SessionRole = 'system' | 'user' | 'assistant';
 
 /**
+ * 回复决策原因枚举。
+ *
+ * 这里刻意使用稳定字符串，而不是让模型自由产出原因文本，
+ * 目的是方便后续做日志统计、行为分析和规则排查。
+ */
+export type ReplyReason =
+  | 'private_blacklist'
+  | 'group_blacklist'
+  | 'private_default'
+  | 'group_at'
+  | 'group_name_mention'
+  | 'group_context_high_value'
+  | 'group_context_related'
+  | 'group_low_value'
+  | 'cooldown'
+  | 'duplicate'
+  | 'group_consecutive_reply_guard'
+  | 'ai_disabled'
+  | 'model_error';
+
+/**
+ * 回复引擎的统一输出。
+ *
+ * 上层调用方只依赖这个结构：
+ * - `shouldReply` 决定是否继续发送；
+ * - `reason` 解释触发路径；
+ * - `score` 仅在价值判断场景下出现；
+ * - `reply` 仅在最终确定要回复时存在。
+ */
+export interface ReplyDecision {
+  shouldReply: boolean;
+  reason: ReplyReason;
+  score?: number;
+  reply?: string;
+}
+
+/**
  * 会话消息结构。
  *
  * 当前代码尚未用到完整会话链路，但这些类型已经定义了后续 AI 对话状态的最小数据模型。
@@ -61,6 +98,12 @@ export interface SessionMessage {
   role: SessionRole;
   content: string;
   time: number;
+  messageId?: string;
+  userId?: string;
+  senderNickname?: string;
+  chatType?: ChatType;
+  isAtBot?: boolean;
+  reason?: ReplyReason;
 }
 
 /**
@@ -77,6 +120,33 @@ export interface PersonaConfig {
   maxTokens: number;
 }
 
+export interface PersonaRegistry {
+  defaultPersonaId: string;
+  personas: PersonaConfig[];
+  bindings: Record<string, string>;
+}
+
+/**
+ * 单个聊天会话的持久化状态。
+ *
+ * 当前只保存回复引擎最需要的状态：
+ * - 最近消息，用于构造上下文；
+ * - 已处理消息 ID，用于去重；
+ * - 最近一次回复时间，用于冷却控制。
+ */
+export interface ChatSession {
+  messages: SessionMessage[];
+  handledMessageIds: string[];
+  lastReplyAt?: number;
+}
+
+/**
+ * 所有会话的持久化快照。
+ */
+export interface SessionsData {
+  sessions: Record<string, ChatSession>;
+}
+
 /**
  * 运行规则配置。
  *
@@ -87,6 +157,9 @@ export interface RuleConfig {
   admins: string[];
   whitelistGroups: string[];
   blacklistUsers: string[];
+  privateBlacklist: string[];
+  groupBlacklist: string[];
+  botNames: string[];
   requireAtInGroup: boolean;
   aiEnabled: boolean;
   commandPrefix: string;

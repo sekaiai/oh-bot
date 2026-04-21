@@ -2,6 +2,11 @@
   "admins": [],
   "whitelistGroups": [],
   "blacklistUsers": [],
+  "privateBlacklist": [],
+  "groupBlacklist": [],
+  "botNames": [
+    "oh-bot"
+  ],
   "requireAtInGroup": true,
   "aiEnabled": true,
   "commandPrefix": "/",

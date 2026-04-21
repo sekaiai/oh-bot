@@ -11,6 +11,7 @@ import { config } from './config/index.js';
 import { parseNapcatMessage } from './adapters/napcat/parser.js';
 import { NapcatSender } from './adapters/napcat/sender.js';
 import { NapcatWsClient } from './adapters/napcat/ws-client.js';
+import { ReplyEngine } from './services/reply-engine.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -27,6 +28,8 @@ import { logger } from './utils/logger.js';
  */
 async function bootstrap(): Promise<void> {
   logger.info('QQ bot service starting');
+  const replyEngine = new ReplyEngine();
+  let sender: NapcatSender | null = null;
 
   const wsClient = new NapcatWsClient({
     url: config.NAPCAT_WS_URL,
@@ -57,33 +60,32 @@ async function bootstrap(): Promise<void> {
         'Received bot message'
       );
 
-      /**
-       * 当前逻辑仍是最小可运行示例：
-       * 只保留 `/ping -> pong`，用来验证“收消息 -> 解析 -> 发消息”的链路是否打通。
-       *
-       * 后续继续开发时，推荐把这里替换成命令路由或消息处理管线，
-       * 而不是在入口函数里继续追加分支。
-       */
-      if (message.cleanText === '/ping') {
-        const sender = new NapcatSender(wsClient);
-        await sender.sendText({
-          chatType: message.chatType,
-          userId: message.userId,
-          groupId: message.groupId,
-          message: 'pong'
-        });
+      if (!sender) {
+        sender = new NapcatSender(wsClient);
+      }
+
+      const decision = await replyEngine.decideAndGenerate(message);
+
+      logger.info(
+        {
+          messageId: message.messageId,
+          shouldReply: decision.shouldReply,
+          reason: decision.reason,
+          score: decision.score
+        },
+        'Reply decision generated'
+      );
+
+      if (!decision.shouldReply || !decision.reply) {
         return;
       }
 
-      if (message.chatType === 'private') {
-        const sender = new NapcatSender(wsClient);
-        await sender.sendText({
-          chatType: message.chatType,
-          userId: message.userId,
-          groupId: message.groupId,
-          message: '收到了'
-        });
-      }
+      await sender.sendText({
+        chatType: message.chatType,
+        userId: message.userId,
+        groupId: message.groupId,
+        message: decision.reply
+      });
     }
   });
 

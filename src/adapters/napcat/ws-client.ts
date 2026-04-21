@@ -25,7 +25,7 @@ export interface WsClientOptions {
   /** 断线重连等待时间，单位毫秒。 */
   reconnectDelayMs?: number;
   /** 上层事件回调，收到并解析 JSON 后原样透传。 */
-  onEvent: (event: unknown) => void;
+  onEvent: (event: unknown) => void | Promise<void>;
 }
 
 /**
@@ -73,7 +73,9 @@ export class NapcatWsClient {
         const raw = typeof data === 'string' ? data : data.toString('utf-8');
         const payload = JSON.parse(raw) as unknown;
         // 传输层只保证“这是 JSON”，至于事件语义是否合法，由上层适配器继续判断。
-        this.options.onEvent(payload);
+        Promise.resolve(this.options.onEvent(payload)).catch((error) => {
+          logger.error({ err: error }, 'NapCat event handler failed');
+        });
       } catch (error) {
         /**
          * 任意一条坏消息都不应拖垮整条连接。
