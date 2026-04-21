@@ -8,7 +8,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "admin:dev": "vite --config admin/vite.config.ts",
+    "admin:build": "vite build --config admin/vite.config.ts"
   },
   "engines": {
     "node": ">=20"
@@ -16,14 +18,19 @@
   "dependencies": {
     "axios": "^1.9.0",
     "dotenv": "^16.4.5",
+    "pinia": "^3.0.3",
     "pino": "^9.3.2",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
     "@types/ws": "^8.5.13",
+    "@vitejs/plugin-vue": "^6.0.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vite": "^7.1.5"
   }
 }

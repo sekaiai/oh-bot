@@ -7,10 +7,12 @@
  * 这里刻意把“连接层”“解析层”“发送层”拆开，后续扩展 AI、命令分发、会话状态时，
  * 可以继续沿着这个边界扩展，而不是把外部协议细节散落到业务逻辑里。
  */
+import type { Server } from 'node:http';
 import { config } from './config/index.js';
 import { parseNapcatMessage } from './adapters/napcat/parser.js';
 import { NapcatSender } from './adapters/napcat/sender.js';
 import { NapcatWsClient } from './adapters/napcat/ws-client.js';
+import { startAdminServer } from './admin/server.js';
 import { ReplyEngine } from './services/reply-engine.js';
 import { logger } from './utils/logger.js';
 
@@ -30,6 +32,8 @@ async function bootstrap(): Promise<void> {
   logger.info('QQ bot service starting');
   const replyEngine = new ReplyEngine();
   let sender: NapcatSender | null = null;
+
+  const adminServer = await startAdminServer();
 
   const wsClient = new NapcatWsClient({
     url: config.NAPCAT_WS_URL,
@@ -101,11 +105,23 @@ async function bootstrap(): Promise<void> {
   const shutdown = (): void => {
     logger.info('QQ bot service shutting down');
     wsClient.shutdown();
+    closeAdminServer(adminServer);
     process.exit(0);
   };
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
+
+function closeAdminServer(server: Server): void {
+  server.close((error) => {
+    if (error) {
+      logger.error({ err: error }, 'Admin server close failed');
+      return;
+    }
+
+    logger.info('Admin server stopped');
+  });
 }
 
 /**

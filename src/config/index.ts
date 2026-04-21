@@ -39,6 +39,9 @@ logger.info(
     aiTimeoutMs: config.AI_TIMEOUT_MS,
     qweatherApiHost: config.QWEATHER_API_HOST,
     qweatherLang: config.QWEATHER_LANG,
+    adminPort: config.ADMIN_PORT,
+    adminWebOrigin: config.ADMIN_WEB_ORIGIN,
+    adminSessionTtlSeconds: config.ADMIN_SESSION_TTL_SECONDS,
     maxContextMessages: config.MAX_CONTEXT_MESSAGES,
     dataDir: config.DATA_DIR,
     logLevel: config.LOG_LEVEL

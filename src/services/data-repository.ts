@@ -4,7 +4,7 @@
  * 该模块负责把 `data/` 目录中的 JSON 文件统一读取为内存结构，
  * 避免业务层到处散落文件路径和默认值逻辑。
  */
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import type { PersonaRegistry, RuleConfig, SessionsData } from '../types/bot.js';
@@ -28,6 +28,11 @@ async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
   } catch {
     return fallback;
   }
+}
+
+async function writeJsonFile<T>(filePath: string, value: T): Promise<void> {
+  await ensureDataDir();
+  await writeFile(filePath, JSON.stringify(value, null, 2), 'utf-8');
 }
 
 /**
@@ -61,6 +66,10 @@ export async function loadRules(): Promise<RuleConfig> {
   };
 }
 
+export async function saveRules(rules: RuleConfig): Promise<void> {
+  await writeJsonFile(rulesPath, rules);
+}
+
 /**
  * 读取 persona 配置。
  *
@@ -83,6 +92,10 @@ export async function loadPersonas(): Promise<PersonaRegistry> {
   });
 }
 
+export async function savePersonas(personas: PersonaRegistry): Promise<void> {
+  await writeJsonFile(personasPath, personas);
+}
+
 /**
  * 读取所有会话状态。
  */
@@ -93,4 +106,4 @@ export async function loadSessionsData(): Promise<SessionsData> {
 }
 
 /** 会话状态文件路径，供 store 层统一写回。 */
-export { sessionsPath };
+export { sessionsPath, rulesPath, personasPath };
