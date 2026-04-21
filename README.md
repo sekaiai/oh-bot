@@ -47,6 +47,11 @@ QWEATHER_LANG=zh
 
 MAX_CONTEXT_MESSAGES=20
 LOG_LEVEL=info
+
+ADMIN_PASSWORD=change_me
+ADMIN_PORT=3100
+ADMIN_WEB_ORIGIN=http://127.0.0.1:5173
+ADMIN_SESSION_TTL_SECONDS=43200
 ```
 
 天气能力至少需要配置：
@@ -181,3 +186,42 @@ await sender.sendMessage({
 - 富媒体的 `file` 当前直接透传给 NapCat，具体支持 URL、本地路径还是其他格式，取决于 NapCat 的实际能力
 - 现在的地点提取是轻量规则版，适合常见问法；复杂地名歧义场景后续可以再做候选地点澄清
 - 当前天气工具是单一内置工具，后续如果要扩成搜索、地图、新闻，建议继续沿用 `ToolRouter` 结构
+
+
+## 管理端（Vue3 + TS + Pinia）
+
+项目新增了一个独立管理端（不依赖 UI 组件库），用于：
+
+- 单密码登录（`ADMIN_PASSWORD`）
+- 运行概览查看
+- `rules.json` 可视化编辑
+- `personas.json` 可视化编辑
+- `sessions.json` 会话查询
+
+### 启动后端（含管理 API）
+
+```bash
+pnpm dev
+```
+
+默认管理 API 地址：`http://127.0.0.1:3100`。
+
+### 启动管理端前端
+
+```bash
+pnpm admin:dev
+```
+
+默认地址：`http://127.0.0.1:5173`。
+
+### 构建管理端前端
+
+```bash
+pnpm admin:build
+```
+
+如需改 API 地址，可在管理端环境变量中配置：
+
+```env
+VITE_ADMIN_API_BASE_URL=http://127.0.0.1:3100
+```
