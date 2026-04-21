@@ -1,0 +1,16 @@
+services:
+  napcat:
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - NAPCAT_UID=${NAPCAT_UID:-1000}
+      - NAPCAT_GID=${NAPCAT_GID:-1000}
+      - ACCOUNT=${NAPCAT_ACCOUNT:-}
+    ports:
+      - 3001:3001
+      - 16001:6099
+    container_name: napcat
+    restart: always
+    image: mlikiowa/napcat-docker:latest
+    volumes:
+      - ./napcat/config:/app/napcat/config
+      - ./ntqq:/app/.config/QQ

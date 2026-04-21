@@ -1,0 +1,11 @@
+.DS_Store
+.env
+docker/.env
+docker/data/
+docker/napcat/config/
+docker/ntqq/
+docker/napcat/qrcode.png
+dist
+node_modules
+/docker/ntqq
+/docker/napcat
