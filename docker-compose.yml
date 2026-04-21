@@ -1,0 +1,11 @@
+version: '3.9'
+services:
+  qq-bot:
+    build: .
+    container_name: qq-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    command: ["node", "dist/index.js"]
