@@ -43,14 +43,44 @@ export interface BotMessage {
  * 该类型只表达“发送意图”，不直接暴露协议动作名称。
  * 目标是让发送层拥有唯一的协议转换入口。
  */
+export interface OutboundMessageSegment {
+  /**
+   * NapCat / OneBot 消息段类型。
+   *
+   * 这里不做更细的字面量枚举，是为了给后续扩展留空间：
+   * 当前先支持 text / image / record / video，
+   * 以后如果要发 reply、face、at、file，不需要再修改基础类型。
+   */
+  type: string;
+  /**
+   * 消息段负载。
+   *
+   * 常见场景：
+   * - text: `{ text: '...' }`
+   * - image/record/video: `{ file: 'https://...' }`
+   */
+  data?: Record<string, unknown>;
+}
+
+/**
+ * 统一的发送内容。
+ *
+ * 这里允许同时接受：
+ * - 纯字符串：兼容当前全部文本发送链路；
+ * - 消息段数组：支持图文、语音、视频等富消息。
+ */
+export type OutboundMessageContent = string | OutboundMessageSegment[];
+
 export interface SendMessageParams {
   chatType: ChatType;
   userId?: string;
   groupId?: string;
-  message: string;
+  message: OutboundMessageContent;
 }
 
-export type SessionRole = 'system' | 'user' | 'assistant';
+// `tool` 角色是为联网工具结果预留的语义位。
+// 当前实现里工具结果还没有落到完整会话消息中，但先把类型边界补齐，后面扩展搜索/地图等工具时不用再改基础模型。
+export type SessionRole = 'system' | 'user' | 'assistant' | 'tool';
 
 /**
  * 回复决策原因枚举。
@@ -71,7 +101,12 @@ export type ReplyReason =
   | 'duplicate'
   | 'group_consecutive_reply_guard'
   | 'ai_disabled'
-  | 'model_error';
+  | 'model_error'
+  // 这些 reason 专门标记“回复是由天气工具链驱动”的场景，
+  // 便于后续从日志或会话存储中区分 AI 自主回复和外部工具辅助回复。
+  | 'tool_weather'
+  | 'tool_missing_location'
+  | 'tool_error';
 
 /**
  * 回复引擎的统一输出。

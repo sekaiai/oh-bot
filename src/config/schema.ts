@@ -21,11 +21,23 @@ import { z } from 'zod';
 export const envSchema = z.object({
   NAPCAT_WS_URL: z.string().url(),
   NAPCAT_ACCESS_TOKEN: z.string().optional().default(''),
+  NAPCAT_RECONNECT_DELAY_MS: z.coerce.number().int().positive().default(3000),
+  NAPCAT_ACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+
   AI_BASE_URL: z.string().url(),
   AI_API_KEY: z.string().optional().default(''),
   AI_MODEL: z.string().min(1),
+  AI_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+
+  // 和风天气配置单独放在 schema，是为了把“联网工具依赖”也纳入启动期校验与默认值管理。
+  // 这样 review 时能一眼看到新增功能引入了哪些运行时约束，而不是散落在业务代码里。
+  QWEATHER_API_HOST: z.string().url().default('https://devapi.qweather.com'),
+  QWEATHER_API_KEY: z.string().optional().default(''),
+  QWEATHER_LANG: z.string().min(1).default('zh'),
+
   MAX_CONTEXT_MESSAGES: z.coerce.number().int().positive().default(20),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info')
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  DATA_DIR: z.string().min(1).default('./data')
 });
 
 /**

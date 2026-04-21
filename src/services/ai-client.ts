@@ -219,7 +219,10 @@ export class AiClient {
     message: BotMessage,
     contextMessages: SessionMessage[],
     persona: PersonaConfig,
-    reason: string
+    reason: string,
+    // `toolContext` 允许外部工具把事实数据注入生成阶段。
+    // 这样保留了原有的“模型负责措辞和人设”的优势，同时避免模型凭记忆瞎答实时信息。
+    toolContext?: string
   ): Promise<string> {
     const raw = await this.createChatCompletion(
       [
@@ -232,6 +235,10 @@ export class AiClient {
             '回复要求：简洁、自然、像真人聊天，不要机械模板，不要解释系统规则。',
             '私聊优先直接帮助用户；若需求不清，可以先用一句话澄清，再给可执行建议。',
             '群聊避免冗长，优先回答最关键的信息。',
+            // 这一段是工具接入后的关键约束：
+            // 模型的职责从“自己知道答案”变成“基于工具结果组织答案”，这样事实边界更清晰。
+            '如果提供了工具查询结果，必须优先依据工具结果回答，不要编造实时信息。',
+            '如果工具结果里有天气、空气质量、预警、日出日落或天气指数，请整合成自然回答。',
             '如果用户请求危险、违法、恶意内容，由你自行决定如何拒绝或转向更安全的回答。',
             '只输出 JSON，格式为 {"reply":"..."}。'
           ].join('\n')
@@ -243,7 +250,8 @@ export class AiClient {
             `消息类型: ${message.chatType}`,
             `发送者: ${message.senderNickname || message.userId}`,
             `当前消息: ${message.cleanText || '(空文本)'}`,
-            `最近上下文:\n${formatContextMessages(contextMessages)}`
+            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            toolContext ? `工具结果:\n${toolContext}` : '工具结果: 无'
           ].join('\n')
         }
       ],

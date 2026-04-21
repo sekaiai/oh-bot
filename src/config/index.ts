@@ -28,12 +28,19 @@ if (!parsed.success) {
 export const config: EnvConfig = parsed.data;
 
 // 启动时打印“关键但不敏感”的配置，便于确认当前连接的是哪个协议端和模型环境。
+// 这里把新增天气能力相关配置也打印出来，review 和联调时可以快速确认是否真的读到了和风配置。
 logger.info(
   {
     napcatWsUrl: config.NAPCAT_WS_URL,
+    napcatReconnectDelayMs: config.NAPCAT_RECONNECT_DELAY_MS,
+    napcatActionTimeoutMs: config.NAPCAT_ACTION_TIMEOUT_MS,
     aiBaseUrl: config.AI_BASE_URL,
     aiModel: config.AI_MODEL,
+    aiTimeoutMs: config.AI_TIMEOUT_MS,
+    qweatherApiHost: config.QWEATHER_API_HOST,
+    qweatherLang: config.QWEATHER_LANG,
     maxContextMessages: config.MAX_CONTEXT_MESSAGES,
+    dataDir: config.DATA_DIR,
     logLevel: config.LOG_LEVEL
   },
   'Configuration loaded'

@@ -6,9 +6,10 @@
  */
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { config } from '../config/index.js';
 import type { PersonaRegistry, RuleConfig, SessionsData } from '../types/bot.js';
 
-const dataDir = path.resolve(process.cwd(), 'data');
+const dataDir = path.resolve(process.cwd(), config.DATA_DIR);
 const rulesPath = path.join(dataDir, 'rules.json');
 const personasPath = path.join(dataDir, 'personas.json');
 const sessionsPath = path.join(dataDir, 'sessions.json');

@@ -25,6 +25,7 @@ import { logger } from '../utils/logger.js';
 import { AiClient } from './ai-client.js';
 import { loadPersonas, loadRules } from './data-repository.js';
 import { SessionStore } from './session-store.js';
+import { ToolRouter } from './tool-router.js';
 
 // 群聊上下文窗口按需求固定在 10~20 条范围内，并复用现有 MAX_CONTEXT_MESSAGES 配置。
 const GROUP_CONTEXT_WINDOW = Math.min(Math.max(config.MAX_CONTEXT_MESSAGES, 10), 20);
@@ -117,6 +118,9 @@ function hasRecentAssistantReply(messages: SessionMessage[]): boolean {
 export class ReplyEngine {
   private readonly aiClient = new AiClient();
   private readonly sessionStore = new SessionStore();
+  // ToolRouter 挂在 ReplyEngine，而不是直接塞进 AiClient，
+  // 是为了保持“业务编排”和“模型调用”职责分离：一个决定要不要查工具，一个只负责和模型通信。
+  private readonly toolRouter = new ToolRouter();
 
   /**
    * 基于单条消息产出最终回复决策。
@@ -259,11 +263,33 @@ export class ReplyEngine {
     );
 
     try {
-      const reply = await this.aiClient.generateReply(message, generationContext, persona, reason);
-      await this.sessionStore.recordAssistantReply(chatKey, reply, now, reason);
+      // 工具调用放在“确定要回复”之后，而不是每条消息都先查天气，
+      // 这样可以复用现有的触发/冷却/去重机制，避免群聊里无意义地消耗外部 API 配额。
+      const toolResolution = await this.toolRouter.resolve(message);
+
+      if (toolResolution.handled && toolResolution.reply && toolResolution.reason) {
+        await this.sessionStore.recordAssistantReply(chatKey, toolResolution.reply, now, toolResolution.reason);
+        return {
+          shouldReply: true,
+          reason: toolResolution.reason,
+          reply: toolResolution.reply
+        };
+      }
+
+      const finalReason = toolResolution.reason ?? reason;
+      // 有工具上下文时，最终回复仍然交给 AI 生成，
+      // 这样天气数据能自然融入既有人设、上下文和聊天语气，而不是变成生硬模板。
+      const reply = await this.aiClient.generateReply(
+        message,
+        generationContext,
+        persona,
+        finalReason,
+        toolResolution.toolContext
+      );
+      await this.sessionStore.recordAssistantReply(chatKey, reply, now, finalReason);
       return {
         shouldReply: true,
-        reason,
+        reason: finalReason,
         score,
         reply
       };
