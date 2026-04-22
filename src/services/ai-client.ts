@@ -265,7 +265,10 @@ export class AiClient {
     message: BotMessage,
     contextMessages: SessionMessage[],
     persona: PersonaConfig,
-    route: Ds2ApiPluginConfig
+    route: Ds2ApiPluginConfig,
+    options?: {
+      fallbackContext?: string;
+    }
   ): Promise<string> {
     const raw = await this.createChatCompletion(
       route,
@@ -288,7 +291,10 @@ export class AiClient {
             `消息类型: ${message.chatType}`,
             `发送者: ${message.senderNickname || message.userId}`,
             `当前消息: ${message.cleanText || '(空文本)'}`,
-            `最近上下文:\n${formatContextMessages(contextMessages)}`
+            `消息图片数量: ${message.imageUrls.length}`,
+            message.imageUrls.length > 0 ? `消息图片链接:\n${message.imageUrls.join('\n')}` : '消息图片链接: 无',
+            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            options?.fallbackContext ? `回退上下文:\n${options.fallbackContext}` : '回退上下文: 无'
           ].join('\n')
         }
       ],

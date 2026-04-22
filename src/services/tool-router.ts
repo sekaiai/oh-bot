@@ -221,6 +221,12 @@ function matchDs2ApiPlugin(text: string, plugins: PluginConfig[]): Ds2ApiPluginC
   });
 }
 
+function findFallbackDs2ApiPlugin(plugins: PluginConfig[]): Ds2ApiPluginConfig | undefined {
+  return plugins.find((plugin): plugin is Ds2ApiPluginConfig => {
+    return plugin.kind === 'ds2api' && plugin.enabled && Boolean(plugin.apiKey);
+  });
+}
+
 function findQWeatherPlugin(plugins: PluginConfig[]): QWeatherPluginConfig | undefined {
   return plugins.find((plugin): plugin is QWeatherPluginConfig => plugin.kind === 'qweather');
 }
@@ -419,6 +425,53 @@ export class ToolRouter {
       };
     } catch (error) {
       logger.error({ err: error, pluginId: qingmengPlugin.id, text: message.cleanText }, 'Qingmeng plugin request failed');
+
+      const fallbackDs2ApiPlugin = findFallbackDs2ApiPlugin(plugins);
+      if (fallbackDs2ApiPlugin) {
+        try {
+          const reply = await this.aiClient.generateRoutedReply(
+            message,
+            contextMessages,
+            persona,
+            fallbackDs2ApiPlugin,
+            {
+              fallbackContext: [
+                `原插件: ${qingmengPlugin.name}`,
+                `失败原因: ${error instanceof Error ? error.message : String(error)}`,
+                '这是插件失败后的兜底回复。',
+                '如果你无法直接理解图片内容，不要假装看懂图片，直接说明当前没有成功读取图片内容，并引导用户稍后重试或补充文字描述。'
+              ].join('\n')
+            }
+          );
+
+          logger.warn(
+            {
+              pluginId: qingmengPlugin.id,
+              fallbackPluginId: fallbackDs2ApiPlugin.id,
+              text: message.cleanText,
+              imageCount: message.imageUrls.length
+            },
+            'Qingmeng plugin failed and fell back to DS2API'
+          );
+
+          return {
+            handled: true,
+            reason: 'tool_ds2api',
+            reply
+          };
+        } catch (fallbackError) {
+          logger.error(
+            {
+              err: fallbackError,
+              sourcePluginId: qingmengPlugin.id,
+              fallbackPluginId: fallbackDs2ApiPlugin.id,
+              text: message.cleanText
+            },
+            'DS2API fallback after Qingmeng failure also failed'
+          );
+        }
+      }
+
       return {
         handled: true,
         reason: 'tool_error',

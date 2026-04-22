@@ -95,7 +95,9 @@ async function bootstrap(): Promise<void> {
           groupId: message.groupId,
           chatType: message.chatType,
           text: message.cleanText,
-          isAtBot: message.isAtBot
+          isAtBot: message.isAtBot,
+          imageCount: message.imageUrls.length,
+          imageUrls: message.imageUrls
         },
         'Received bot message'
       );

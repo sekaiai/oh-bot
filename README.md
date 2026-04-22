@@ -28,6 +28,36 @@ pnpm build
 pnpm start
 ```
 
+如果同时在做后端和管理端开发，常用命令是：
+
+```bash
+pnpm dev:bot
+pnpm dev:admin
+pnpm check
+pnpm codex:doctor
+```
+
+其中 `pnpm check` 会统一执行：
+
+- TypeScript 类型检查
+- 后端构建
+- 管理端构建
+
+`pnpm codex:doctor` 会额外检查：
+
+- 环境变量是否完整
+- 管理端是否启用
+- 媒体发送模式和临时目录配置是否匹配
+- `data/plugins/*.json` 是否存在明显缺项
+
+如果你希望一次跑完构建和诊断，可以直接执行：
+
+```bash
+pnpm codex:check
+```
+
+仓库根目录也新增了 [AGENTS.md](./AGENTS.md)，里面整理了当前项目的入口文件、运行期数据说明和对 Codex 更友好的开发约定。
+
 ## 环境变量
 
 主 AI 仍然固定读取 `.env`。

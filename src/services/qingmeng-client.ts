@@ -12,6 +12,7 @@ import type {
 
 interface QingmengRequestResult {
   requestUrl: string;
+  requestParams: Record<string, string>;
   responseUrl: string | null;
   status: number;
   contentType: string;
@@ -202,6 +203,65 @@ function tryParseJsonPayload(value: unknown): unknown | null {
   return null;
 }
 
+function hasSupportedImageExtension(value: string): boolean {
+  return /\.(jpg|jpeg|png|gif)(?:$|[?#])/iu.test(value);
+}
+
+function inferImageExtensionFromContentType(contentType: string): string | null {
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase();
+  if (!normalized.startsWith('image/')) {
+    return null;
+  }
+
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') {
+    return 'jpg';
+  }
+
+  if (normalized === 'image/png') {
+    return 'png';
+  }
+
+  if (normalized === 'image/gif') {
+    return 'gif';
+  }
+
+  return null;
+}
+
+async function normalizeRemoteImageUrl(rawUrl: string): Promise<string> {
+  const trimmed = rawUrl.trim();
+  if (!trimmed || hasSupportedImageExtension(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    new URL(trimmed);
+  } catch {
+    return trimmed;
+  }
+
+  try {
+    const response = await axios.get(trimmed, {
+      responseType: 'stream',
+      timeout: 10_000,
+      maxRedirects: 5,
+      validateStatus: () => true
+    });
+
+    const contentType = String(response.headers['content-type'] ?? '');
+    response.data.destroy();
+
+    const extension = inferImageExtensionFromContentType(contentType);
+    if (!extension) {
+      return trimmed;
+    }
+
+    return `${trimmed}#image.${extension}`;
+  } catch {
+    return trimmed;
+  }
+}
+
 export class QingmengClient {
   constructor(private readonly plugin: QingmengPluginConfig) {}
 
@@ -237,8 +297,23 @@ export class QingmengClient {
   }
 
   private async requestEndpoint(endpoint: QingmengEndpointConfig, params: Record<string, string>): Promise<QingmengRequestResult> {
+    const normalizedParams = { ...params };
+
+    for (const parameter of endpoint.parameters) {
+      if (parameter.source !== 'image_url') {
+        continue;
+      }
+
+      const currentValue = normalizedParams[parameter.name];
+      if (!currentValue) {
+        continue;
+      }
+
+      normalizedParams[parameter.name] = await normalizeRemoteImageUrl(currentValue);
+    }
+
     const response = await axios.get<ArrayBuffer | Record<string, unknown>>(endpoint.url, {
-      params,
+      params: normalizedParams,
       responseType: endpoint.responseMode === 'redirect_media' ? 'arraybuffer' : 'json',
       timeout: 20_000,
       maxRedirects: 5,
@@ -262,6 +337,7 @@ export class QingmengClient {
 
       return {
         requestUrl: endpoint.url,
+        requestParams: normalizedParams,
         responseUrl,
         status: response.status,
         contentType,
@@ -275,6 +351,7 @@ export class QingmengClient {
 
     return {
       requestUrl: endpoint.url,
+      requestParams: normalizedParams,
       responseUrl,
       status: response.status,
       contentType,
@@ -295,7 +372,7 @@ export class QingmengClient {
         outboundMessage: text,
         diagnostics: {
           endpointId: endpoint.id,
-          params,
+          params: result.requestParams,
           responsePreview: text
         }
       };
@@ -311,7 +388,7 @@ export class QingmengClient {
           outboundMessage: text,
           diagnostics: {
             endpointId: endpoint.id,
-            params,
+            params: result.requestParams,
             payload: value
           }
         };
@@ -328,7 +405,7 @@ export class QingmengClient {
           outboundMessage: resolvedValue,
           diagnostics: {
             endpointId: endpoint.id,
-            params,
+            params: result.requestParams,
             value: resolvedValue
           }
         };
@@ -355,7 +432,7 @@ export class QingmengClient {
         outboundMessage: segments,
         diagnostics: {
           endpointId: endpoint.id,
-          params,
+          params: result.requestParams,
           value: resolvedValue
         }
       };
@@ -379,7 +456,7 @@ export class QingmengClient {
           outboundMessage: text,
           diagnostics: {
             endpointId: endpoint.id,
-            params,
+            params: result.requestParams,
             itemCount: items.length
           }
         };
@@ -421,7 +498,7 @@ export class QingmengClient {
         outboundMessage: segments,
         diagnostics: {
           endpointId: endpoint.id,
-          params,
+          params: result.requestParams,
           itemCount: items.length
         }
       };
@@ -458,7 +535,7 @@ export class QingmengClient {
       outboundMessage: segments,
       diagnostics: {
         endpointId: endpoint.id,
-        params,
+        params: result.requestParams,
         status: result.status,
         contentType: result.contentType,
         responseUrl: result.responseUrl
