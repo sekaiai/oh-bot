@@ -300,6 +300,8 @@ const reasonLabels: Record<string, string> = {
   ai_disabled: 'AI 已关闭',
   model_error: '模型异常',
   tool_weather: '天气工具回复',
+  tool_ds2api: 'DS2API 插件回复',
+  tool_qingmeng: '倾梦插件回复',
   tool_missing_location: '缺少地点',
   tool_error: '工具异常'
 };

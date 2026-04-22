@@ -34,6 +34,8 @@ logger.info(
     napcatWsUrl: config.NAPCAT_WS_URL,
     napcatReconnectDelayMs: config.NAPCAT_RECONNECT_DELAY_MS,
     napcatActionTimeoutMs: config.NAPCAT_ACTION_TIMEOUT_MS,
+    napcatMediaSendMode: config.NAPCAT_MEDIA_SEND_MODE,
+    napcatMediaTempDir: config.NAPCAT_MEDIA_TEMP_DIR || '(default tmpdir)',
     aiBaseUrl: config.AI_BASE_URL,
     aiModel: config.AI_MODEL,
     aiTimeoutMs: config.AI_TIMEOUT_MS,

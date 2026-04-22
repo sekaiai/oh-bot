@@ -283,7 +283,8 @@ export class ReplyEngine {
         return {
           shouldReply: true,
           reason: toolResolution.reason,
-          reply: toolResolution.reply
+          reply: toolResolution.reply,
+          outboundMessage: toolResolution.outboundMessage ?? toolResolution.reply
         };
       }
 
@@ -308,7 +309,8 @@ export class ReplyEngine {
         shouldReply: true,
         reason: finalReason,
         score,
-        reply
+        reply,
+        outboundMessage: reply
       };
     } catch (error) {
       logger.error({ err: error, reason }, 'Reply generation failed');

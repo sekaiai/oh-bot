@@ -23,6 +23,8 @@ export const envSchema = z.object({
   NAPCAT_ACCESS_TOKEN: z.string().optional().default(''),
   NAPCAT_RECONNECT_DELAY_MS: z.coerce.number().int().positive().default(3000),
   NAPCAT_ACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  NAPCAT_MEDIA_SEND_MODE: z.enum(['base64', 'local_path', 'file_url']).default('base64'),
+  NAPCAT_MEDIA_TEMP_DIR: z.string().default(''),
 
   AI_BASE_URL: z.string().url(),
   AI_API_KEY: z.string().optional().default(''),

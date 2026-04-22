@@ -32,7 +32,7 @@ export interface AiEndpointConfig {
   timeoutMs: number;
 }
 
-export type PluginKind = 'ds2api' | 'qweather';
+export type PluginKind = 'ds2api' | 'qweather' | 'qingmeng';
 
 export interface PluginConfigBase {
   id: string;
@@ -56,7 +56,52 @@ export interface QWeatherPluginConfig extends PluginConfigBase {
   lang: string;
 }
 
-export type PluginConfig = Ds2ApiPluginConfig | QWeatherPluginConfig;
+export type QingmengEndpointGroup = 'image' | 'video' | 'audio' | 'text' | 'tool' | 'analysis';
+
+export type QingmengParameterSource = 'fixed' | 'intent' | 'image_url';
+
+export type QingmengResponseMode = 'json_value' | 'json_list' | 'openai_text' | 'redirect_media';
+
+export interface QingmengEndpointParameter {
+  id: string;
+  name: string;
+  label: string;
+  description: string;
+  source: QingmengParameterSource;
+  required: boolean;
+  defaultValue: string;
+}
+
+export interface QingmengEndpointConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  group: QingmengEndpointGroup;
+  description: string;
+  intentAliases: string[];
+  fallbackEligible: boolean;
+  method: 'GET';
+  url: string;
+  intentPrompt: string;
+  parameters: QingmengEndpointParameter[];
+  responseMode: QingmengResponseMode;
+  responsePath?: string;
+  listPath?: string;
+  itemTitlePath?: string;
+  itemUrlPath?: string;
+  captionTemplate?: string;
+  sampleInput: string;
+  sampleImageUrl?: string;
+}
+
+export interface QingmengPluginConfig extends PluginConfigBase {
+  kind: 'qingmeng';
+  ckey: string;
+  classifierPrompt: string;
+  endpoints: QingmengEndpointConfig[];
+}
+
+export type PluginConfig = Ds2ApiPluginConfig | QWeatherPluginConfig | QingmengPluginConfig;
 
 export interface SessionMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -136,4 +181,10 @@ export interface PluginTestResult {
   message: string;
   elapsedMs: number;
   details?: unknown;
+}
+
+export interface PluginTestPayload {
+  input?: string;
+  endpointId?: string;
+  imageUrl?: string;
 }

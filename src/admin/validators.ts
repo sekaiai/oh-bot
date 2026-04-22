@@ -83,11 +83,55 @@ const qweatherPluginSchema = z.object({
   lang: z.string().min(1)
 });
 
-export const pluginConfigSchema = z.discriminatedUnion('kind', [ds2apiPluginSchema, qweatherPluginSchema]);
+const qingmengParameterSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string(),
+  source: z.enum(['fixed', 'intent', 'image_url']),
+  required: z.boolean(),
+  defaultValue: z.string()
+});
+
+const qingmengEndpointSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  group: z.enum(['image', 'video', 'audio', 'text', 'tool', 'analysis']),
+  description: z.string().min(1),
+  intentAliases: z.array(z.string().min(1)),
+  fallbackEligible: z.boolean(),
+  method: z.literal('GET'),
+  url: z.string().url(),
+  intentPrompt: z.string().min(1),
+  parameters: z.array(qingmengParameterSchema),
+  responseMode: z.enum(['json_value', 'json_list', 'openai_text', 'redirect_media']),
+  responsePath: z.string().optional(),
+  listPath: z.string().optional(),
+  itemTitlePath: z.string().optional(),
+  itemUrlPath: z.string().optional(),
+  captionTemplate: z.string().optional(),
+  sampleInput: z.string(),
+  sampleImageUrl: z.string().url().optional().or(z.literal(''))
+});
+
+const qingmengPluginSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal('qingmeng'),
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  ckey: z.string(),
+  classifierPrompt: z.string().min(1),
+  endpoints: z.array(qingmengEndpointSchema)
+});
+
+export const pluginConfigSchema = z.discriminatedUnion('kind', [ds2apiPluginSchema, qweatherPluginSchema, qingmengPluginSchema]);
 
 export const pluginTestSchema = z.object({
   plugin: pluginConfigSchema,
-  input: z.string().optional().default('')
+  input: z.string().optional().default(''),
+  endpointId: z.string().optional(),
+  imageUrl: z.string().optional()
 });
 
 export const sessionSettingsSchema = z.object({

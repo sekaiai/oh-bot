@@ -1,14 +1,19 @@
 import type {
   BotMessage,
   Ds2ApiPluginConfig,
+  OutboundMessageContent,
   PersonaConfig,
   PluginConfig,
+  QingmengEndpointConfig,
+  QingmengPluginConfig,
   QWeatherPluginConfig,
   ReplyDecision,
   SessionMessage
 } from '../types/bot.js';
+import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 import { AiClient } from './ai-client.js';
+import { QingmengClient } from './qingmeng-client.js';
 import {
   QWeatherClient,
   type AirNow,
@@ -33,6 +38,7 @@ export interface ToolResolution {
   handled: boolean;
   reason?: ReplyDecision['reason'];
   reply?: string;
+  outboundMessage?: OutboundMessageContent;
   toolContext?: string;
 }
 
@@ -219,6 +225,80 @@ function findQWeatherPlugin(plugins: PluginConfig[]): QWeatherPluginConfig | und
   return plugins.find((plugin): plugin is QWeatherPluginConfig => plugin.kind === 'qweather');
 }
 
+function findQingmengPlugin(plugins: PluginConfig[]): QingmengPluginConfig | undefined {
+  return plugins.find((plugin): plugin is QingmengPluginConfig => plugin.kind === 'qingmeng');
+}
+
+function normalizeIntentText(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+function matchQingmengEndpointByAlias(text: string, endpoints: QingmengEndpointConfig[]): QingmengEndpointConfig | undefined {
+  const normalized = normalizeIntentText(text);
+  const candidates = endpoints
+    .map((endpoint) => {
+      const bestAlias = endpoint.intentAliases
+        .map((alias) => alias.trim())
+        .filter(Boolean)
+        .filter((alias) => normalized.includes(alias.toLowerCase()))
+        .sort((a, b) => b.length - a.length)[0];
+
+      return {
+        endpoint,
+        bestAliasLength: bestAlias?.length ?? 0
+      };
+    })
+    .filter((item) => item.bestAliasLength > 0)
+    .sort((a, b) => b.bestAliasLength - a.bestAliasLength);
+
+  return candidates[0]?.endpoint;
+}
+
+function looksLikeGenericImageRequest(text: string): boolean {
+  const normalized = normalizeIntentText(text);
+  return ['图片', '照片', '来张图', '来一张图', '来张图片', '发张图', '发一张图', '来个图片'].some((keyword) =>
+    normalized.includes(keyword)
+  );
+}
+
+function looksLikeGenericVideoRequest(text: string): boolean {
+  const normalized = normalizeIntentText(text);
+  return ['视频', '短视频', '短片', '片子'].some((keyword) => normalized.includes(keyword));
+}
+
+function looksLikeGenericAudioRequest(text: string): boolean {
+  const normalized = normalizeIntentText(text);
+  return ['语音', '音频', '声音'].some((keyword) => normalized.includes(keyword));
+}
+
+function detectQingmengFallbackGroup(text: string, hasImageAttachment: boolean): QingmengEndpointConfig['group'] | null {
+  if (!hasImageAttachment && looksLikeGenericImageRequest(text)) {
+    return 'image';
+  }
+
+  if (looksLikeGenericVideoRequest(text)) {
+    return 'video';
+  }
+
+  if (looksLikeGenericAudioRequest(text)) {
+    return 'audio';
+  }
+
+  return null;
+}
+
+function pickRandomQingmengEndpoint(
+  endpoints: QingmengEndpointConfig[],
+  group: QingmengEndpointConfig['group']
+): QingmengEndpointConfig | undefined {
+  const candidates = endpoints.filter((endpoint) => endpoint.group === group && endpoint.fallbackEligible);
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
 export class ToolRouter {
   private readonly aiClient = new AiClient();
 
@@ -242,31 +322,107 @@ export class ToolRouter {
     }
 
     const ds2apiPlugin = matchDs2ApiPlugin(message.cleanText, plugins);
-    if (!ds2apiPlugin) {
+    if (ds2apiPlugin) {
+      if (!ds2apiPlugin.apiKey) {
+        return {
+          handled: true,
+          reason: 'tool_error',
+          reply: `插件「${ds2apiPlugin.name}」还没有配置 API Key，请先在后台补全。`
+        };
+      }
+
+      try {
+        const reply = await this.aiClient.generateRoutedReply(message, contextMessages, persona, ds2apiPlugin);
+        return {
+          handled: true,
+          reason: 'tool_ds2api',
+          reply
+        };
+      } catch (error) {
+        logger.error({ err: error, pluginId: ds2apiPlugin.id }, 'DS2API plugin request failed');
+        return {
+          handled: true,
+          reason: 'tool_error',
+          reply: `插件「${ds2apiPlugin.name}」当前调用失败，请稍后再试。`
+        };
+      }
+    }
+
+    const qingmengPlugin = findQingmengPlugin(plugins);
+    if (!qingmengPlugin?.enabled) {
       return { handled: false };
     }
 
-    if (!ds2apiPlugin.apiKey) {
-      return {
-        handled: true,
-        reason: 'tool_error',
-        reply: `插件「${ds2apiPlugin.name}」还没有配置 API Key，请先在后台补全。`
-      };
-    }
-
     try {
-      const reply = await this.aiClient.generateRoutedReply(message, contextMessages, persona, ds2apiPlugin);
+      const enabledEndpoints = qingmengPlugin.endpoints.filter((endpoint) => endpoint.enabled);
+      if (enabledEndpoints.length === 0) {
+        return { handled: false };
+      }
+
+      if (!qingmengPlugin.ckey) {
+        return {
+          handled: true,
+          reason: 'tool_error',
+          reply: `插件「${qingmengPlugin.name}」还没有配置 ckey，请先在后台补全。`
+        };
+      }
+
+      const qingmengClient = new QingmengClient(qingmengPlugin);
+      const aliasMatchedEndpoint = matchQingmengEndpointByAlias(message.cleanText, enabledEndpoints);
+      const fallbackGroup = aliasMatchedEndpoint ? null : detectQingmengFallbackGroup(message.cleanText, message.imageUrls.length > 0);
+      const fallbackEndpoint = fallbackGroup ? pickRandomQingmengEndpoint(enabledEndpoints, fallbackGroup) : undefined;
+
+      let endpoint = aliasMatchedEndpoint ?? fallbackEndpoint;
+      let intentParams: Record<string, string> = {};
+
+      if (!endpoint) {
+        const classification = await this.aiClient.classifyQingmengIntent(
+          message,
+          contextMessages,
+          qingmengPlugin,
+          {
+            baseUrl: config.AI_BASE_URL,
+            apiKey: config.AI_API_KEY,
+            model: config.AI_MODEL,
+            timeoutMs: config.AI_TIMEOUT_MS
+          }
+        );
+
+        if (!classification.shouldUsePlugin || !classification.endpointId) {
+          return { handled: false };
+        }
+
+        endpoint = enabledEndpoints.find((item) => item.id === classification.endpointId);
+        if (!endpoint) {
+          return { handled: false };
+        }
+
+        intentParams = classification.params;
+      }
+
+      const requestParams = qingmengClient.buildRequestParams(endpoint, intentParams, message.imageUrls);
+      const missingImageParam = endpoint.parameters.find((parameter) => parameter.source === 'image_url' && parameter.required);
+      if (missingImageParam && !message.imageUrls[0]) {
+        return {
+          handled: true,
+          reason: 'tool_error',
+          reply: '你这次没有发图片，我还没法帮你看图。把图片和问题一起发过来就行。'
+        };
+      }
+
+      const execution = await qingmengClient.executeEndpoint(endpoint, requestParams);
       return {
         handled: true,
-        reason: 'tool_ds2api',
-        reply
+        reason: 'tool_qingmeng',
+        reply: execution.replySummary,
+        outboundMessage: execution.outboundMessage
       };
     } catch (error) {
-      logger.error({ err: error, pluginId: ds2apiPlugin.id }, 'DS2API plugin request failed');
+      logger.error({ err: error, pluginId: qingmengPlugin.id, text: message.cleanText }, 'Qingmeng plugin request failed');
       return {
         handled: true,
         reason: 'tool_error',
-        reply: `插件「${ds2apiPlugin.name}」当前调用失败，请稍后再试。`
+        reply: `插件「${qingmengPlugin.name}」当前调用失败，请稍后再试。`
       };
     }
   }

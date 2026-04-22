@@ -58,6 +58,20 @@ function hasAtSelf(message: NapcatMessageEvent['message'], selfId: string): bool
   );
 }
 
+function extractImageUrls(message: NapcatMessageEvent['message']): string[] {
+  if (!Array.isArray(message)) {
+    return [];
+  }
+
+  return message
+    .filter((segment) => segment?.type === 'image')
+    .map((segment) => {
+      const file = segment.data?.url ?? segment.data?.file;
+      return typeof file === 'string' ? file.trim() : '';
+    })
+    .filter(Boolean);
+}
+
 /**
  * 将 NapCat 原始事件解析为统一消息模型。
  *
@@ -107,6 +121,7 @@ export function parseNapcatMessage(event: unknown): BotMessage | null {
 
   const rawText = extractText(payload.message, payload.raw_message).trim();
   const isAtBot = hasAtSelf(payload.message, selfId);
+  const imageUrls = extractImageUrls(payload.message);
 
   /**
    * 当前 `cleanText` 与 `rawText` 保持一致，等价于“尚未做命令清洗”。
@@ -120,6 +135,7 @@ export function parseNapcatMessage(event: unknown): BotMessage | null {
     chatType: payload.message_type,
     rawText,
     cleanText: rawText,
+    imageUrls,
     isAtBot,
     selfId,
     senderNickname: payload.sender?.card || payload.sender?.nickname,

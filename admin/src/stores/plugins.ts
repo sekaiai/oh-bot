@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { post, put, request } from '../api/client';
-import type { PluginConfig, PluginTestResult } from '../types';
+import type { PluginConfig, PluginTestPayload, PluginTestResult } from '../types';
 
 interface PluginState {
   items: PluginConfig[];
@@ -34,15 +34,15 @@ export const usePluginStore = defineStore('plugins', {
         this.savingIds = this.savingIds.filter((item) => item !== plugin.id);
       }
     },
-    async testPlugin(plugin: PluginConfig, input: string): Promise<PluginTestResult> {
-      this.testingIds = [...this.testingIds, plugin.id];
+    async testPlugin(plugin: PluginConfig, payload: PluginTestPayload, testingKey = plugin.id): Promise<PluginTestResult> {
+      this.testingIds = [...this.testingIds, testingKey];
       try {
         return await post<PluginTestResult>(`/admin/plugins/${plugin.id}/test`, {
           plugin,
-          input
+          ...payload
         });
       } finally {
-        this.testingIds = this.testingIds.filter((item) => item !== plugin.id);
+        this.testingIds = this.testingIds.filter((item) => item !== testingKey);
       }
     }
   }

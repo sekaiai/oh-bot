@@ -16,12 +16,14 @@ import type {
   PersonaRegistry,
   PluginConfig,
   PluginKind,
+  QingmengPluginConfig,
   QWeatherPluginConfig,
   RuleConfig,
   SessionMessage
 } from '../types/bot.js';
 import { logger } from '../utils/logger.js';
 import { AiClient } from '../services/ai-client.js';
+import { QingmengClient } from '../services/qingmeng-client.js';
 import { QWeatherClient } from '../services/qweather-client.js';
 import {
   buildClearSessionCookie,
@@ -136,7 +138,7 @@ function sanitizeConfigSummary(plugins: PluginConfig[]) {
 }
 
 function isPluginKind(value: string): value is PluginKind {
-  return value === 'ds2api' || value === 'qweather';
+  return value === 'ds2api' || value === 'qweather' || value === 'qingmeng';
 }
 
 async function testDs2ApiPlugin(plugin: Ds2ApiPluginConfig, input: string): Promise<PluginTestResponse> {
@@ -178,9 +180,49 @@ async function testQWeatherPlugin(plugin: QWeatherPluginConfig, input: string): 
   };
 }
 
-async function runPluginTest(plugin: PluginConfig, input: string): Promise<PluginTestResponse> {
+async function testQingmengPlugin(
+  plugin: QingmengPluginConfig,
+  endpointId: string | undefined,
+  input: string,
+  imageUrl: string
+): Promise<PluginTestResponse> {
+  const startTime = Date.now();
+  const endpoint = plugin.endpoints.find((item) => item.id === endpointId);
+  if (!endpoint) {
+    throw new Error('未找到要测试的倾梦接口');
+  }
+
+  const client = new QingmengClient(plugin);
+  const params = client.buildRequestParams(endpoint, {}, [], input.trim() || endpoint.sampleInput, imageUrl.trim() || endpoint.sampleImageUrl || '');
+  const result = await client.executeEndpoint(endpoint, params);
+
+  return {
+    ok: true,
+    message: `倾梦接口「${endpoint.name}」调用成功`,
+    elapsedMs: Date.now() - startTime,
+    details: {
+      endpointId: endpoint.id,
+      endpointName: endpoint.name,
+      params,
+      replySummary: result.replySummary,
+      outboundMessage: result.outboundMessage,
+      diagnostics: result.diagnostics
+    }
+  };
+}
+
+async function runPluginTest(
+  plugin: PluginConfig,
+  input: string,
+  endpointId?: string,
+  imageUrl = ''
+): Promise<PluginTestResponse> {
   if (plugin.kind === 'ds2api') {
     return testDs2ApiPlugin(plugin, input);
+  }
+
+  if (plugin.kind === 'qingmeng') {
+    return testQingmengPlugin(plugin, endpointId, input, imageUrl);
   }
 
   return testQWeatherPlugin(plugin, input);
@@ -397,7 +439,7 @@ export function createAdminServer(): Server {
             return;
           }
 
-          const result = await runPluginTest(parsed.data.plugin, parsed.data.input);
+          const result = await runPluginTest(parsed.data.plugin, parsed.data.input, parsed.data.endpointId, parsed.data.imageUrl ?? '');
           writeJson(response, 200, result, origin);
           return;
         }

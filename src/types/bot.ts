@@ -26,6 +26,8 @@ export interface BotMessage {
   rawText: string;
   /** 预留给文本清洗后的结果，当前与 `rawText` 一致。 */
   cleanText: string;
+  /** 消息里提取出的图片链接，供看图、OCR、图片插件等能力使用。 */
+  imageUrls: string[];
   /** 是否显式 @ 到机器人；主要用于群聊触发策略。 */
   isAtBot: boolean;
   /** 机器人自身账号 ID，用于判断 @ 和消息归属。 */
@@ -104,6 +106,7 @@ export type ReplyReason =
   | 'model_error'
   | 'tool_weather'
   | 'tool_ds2api'
+  | 'tool_qingmeng'
   | 'tool_missing_location'
   | 'tool_error';
 
@@ -121,6 +124,7 @@ export interface ReplyDecision {
   reason: ReplyReason;
   score?: number;
   reply?: string;
+  outboundMessage?: OutboundMessageContent;
 }
 
 /**
@@ -207,7 +211,7 @@ export interface AiEndpointConfig {
   timeoutMs: number;
 }
 
-export type PluginKind = 'ds2api' | 'qweather';
+export type PluginKind = 'ds2api' | 'qweather' | 'qingmeng';
 
 export interface PluginConfigBase {
   id: string;
@@ -231,4 +235,49 @@ export interface QWeatherPluginConfig extends PluginConfigBase {
   lang: string;
 }
 
-export type PluginConfig = Ds2ApiPluginConfig | QWeatherPluginConfig;
+export type QingmengEndpointGroup = 'image' | 'video' | 'audio' | 'text' | 'tool' | 'analysis';
+
+export type QingmengParameterSource = 'fixed' | 'intent' | 'image_url';
+
+export type QingmengResponseMode = 'json_value' | 'json_list' | 'openai_text' | 'redirect_media';
+
+export interface QingmengEndpointParameter {
+  id: string;
+  name: string;
+  label: string;
+  description: string;
+  source: QingmengParameterSource;
+  required: boolean;
+  defaultValue: string;
+}
+
+export interface QingmengEndpointConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  group: QingmengEndpointGroup;
+  description: string;
+  intentAliases: string[];
+  fallbackEligible: boolean;
+  method: 'GET';
+  url: string;
+  intentPrompt: string;
+  parameters: QingmengEndpointParameter[];
+  responseMode: QingmengResponseMode;
+  responsePath?: string;
+  listPath?: string;
+  itemTitlePath?: string;
+  itemUrlPath?: string;
+  captionTemplate?: string;
+  sampleInput: string;
+  sampleImageUrl?: string;
+}
+
+export interface QingmengPluginConfig extends PluginConfigBase {
+  kind: 'qingmeng';
+  ckey: string;
+  classifierPrompt: string;
+  endpoints: QingmengEndpointConfig[];
+}
+
+export type PluginConfig = Ds2ApiPluginConfig | QWeatherPluginConfig | QingmengPluginConfig;

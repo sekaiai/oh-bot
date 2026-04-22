@@ -13,6 +13,7 @@ import type {
   BotMessage,
   Ds2ApiPluginConfig,
   PersonaConfig,
+  QingmengPluginConfig,
   SessionMessage
 } from '../types/bot.js';
 import { withRetry } from '../utils/retry.js';
@@ -29,6 +30,13 @@ const decisionSchema = z.object({
 
 const replySchema = z.object({
   reply: z.string().min(1)
+});
+
+const qingmengIntentSchema = z.object({
+  shouldUsePlugin: z.boolean(),
+  endpointId: z.string().nullable(),
+  confidence: z.number().min(0).max(1),
+  params: z.record(z.string()).default({})
 });
 
 function toChatEndpoint(baseUrl: string): string {
@@ -292,5 +300,73 @@ export class AiClient {
 
     const parsed = replySchema.parse(JSON.parse(extractJsonPayload(raw)));
     return parsed.reply.trim();
+  }
+
+  async classifyQingmengIntent(
+    message: BotMessage,
+    contextMessages: SessionMessage[],
+    plugin: QingmengPluginConfig,
+    service: AiEndpointConfig
+  ): Promise<{ shouldUsePlugin: boolean; endpointId: string | null; confidence: number; params: Record<string, string> }> {
+    const enabledEndpoints = plugin.endpoints
+      .filter((endpoint) => endpoint.enabled)
+      .map((endpoint) => ({
+        id: endpoint.id,
+        name: endpoint.name,
+        group: endpoint.group,
+        description: endpoint.description,
+        intentPrompt: endpoint.intentPrompt,
+        parameters: endpoint.parameters
+          .filter((parameter) => parameter.source !== 'fixed')
+          .map((parameter) => ({
+            name: parameter.name,
+            description: parameter.description,
+            required: parameter.required,
+            source: parameter.source,
+            defaultValue: parameter.defaultValue
+          }))
+      }));
+
+    if (enabledEndpoints.length === 0) {
+      return {
+        shouldUsePlugin: false,
+        endpointId: null,
+        confidence: 0,
+        params: {}
+      };
+    }
+
+    const raw = await this.createChatCompletion(
+      service,
+      [
+        {
+          role: 'system',
+          content: [
+            plugin.classifierPrompt,
+            '你只做插件路由判断，不生成最终回复。',
+            '如果没有任何接口匹配，就返回 {"shouldUsePlugin":false,"endpointId":null,"confidence":0,"params":{}}。',
+            'params 只填字符串值。',
+            '对于 count/page 这类数量参数，抽取纯数字字符串；没有明确数字时可用默认值。',
+            '对于 time 参数，只能输出 today/week/month/year。',
+            '只输出 JSON。'
+          ].join('\n')
+        },
+        {
+          role: 'user',
+          content: [
+            `当前消息: ${message.cleanText || '(空文本)'}`,
+            `消息图片数量: ${message.imageUrls.length}`,
+            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            `可用接口:\n${JSON.stringify(enabledEndpoints, null, 2)}`
+          ].join('\n')
+        }
+      ],
+      {
+        temperature: 0.1,
+        maxTokens: 500
+      }
+    );
+
+    return qingmengIntentSchema.parse(JSON.parse(extractJsonPayload(raw)));
   }
 }
