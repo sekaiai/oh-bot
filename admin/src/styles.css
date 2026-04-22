@@ -545,6 +545,78 @@ a {
   gap: 8px;
 }
 
+.plugin-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.plugin-subpanel,
+.route-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(24, 52, 47, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.plugin-subpanel-head,
+.route-card-head,
+.route-title-line,
+.route-card-actions {
+  display: flex;
+  gap: 14px;
+}
+
+.plugin-subpanel-head,
+.route-card-head {
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.route-title-line {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.route-title-stack {
+  display: flex;
+  flex: 1 1 420px;
+  min-width: 280px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.route-title-input {
+  min-width: 220px;
+  font-weight: 600;
+}
+
+.route-card-actions {
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.plugin-compact-grid,
+.route-core-grid,
+.endpoint-core-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.plugin-compact-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.plugin-compact-grid-3,
+.route-core-grid,
+.endpoint-core-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .plugin-form-grid {
   display: grid;
   gap: 14px;
@@ -569,6 +641,17 @@ a {
 .field-size-xs .ui-input,
 .field-size-sm .ui-input {
   max-width: 180px;
+}
+
+.field-note {
+  margin: 0;
+  color: var(--admin-text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.compact-switch {
+  min-width: 210px;
 }
 
 .plugin-side-stack {
@@ -649,6 +732,13 @@ a {
   flex-wrap: wrap;
 }
 
+.ds2api-route-list,
+.endpoint-advanced-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .endpoint-switch {
   min-width: 220px;
 }
@@ -698,6 +788,37 @@ a {
 .endpoint-param-description {
   grid-column: 1 / -1;
   min-height: 70px;
+}
+
+.config-disclosure {
+  border: 1px solid rgba(24, 52, 47, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.54);
+  overflow: hidden;
+}
+
+.config-disclosure summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 16px;
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+.config-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-disclosure[open] summary {
+  border-bottom: 1px solid rgba(24, 52, 47, 0.08);
+}
+
+.disclosure-body {
+  padding: 16px;
+}
+
+.ui-textarea-tight {
+  min-height: 92px;
 }
 
 .ui-textarea-compact {
@@ -1189,6 +1310,9 @@ a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .plugin-compact-grid-3,
+  .route-core-grid,
+  .endpoint-core-grid,
   .plugin-form-grid-ds2api,
   .plugin-form-grid-qweather,
   .endpoint-grid,
@@ -1249,6 +1373,10 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .plugin-compact-grid-2,
+  .plugin-compact-grid-3,
+  .route-core-grid,
+  .endpoint-core-grid,
   .plugin-form-grid-ds2api,
   .plugin-form-grid-qweather,
   .endpoint-grid,
@@ -1268,6 +1396,10 @@ a {
   .plugin-title-line,
   .plugin-meta-strip,
   .plugin-diagnostics-head,
+  .plugin-subpanel-head,
+  .route-card-head,
+  .route-title-line,
+  .route-card-actions,
   .qingmeng-toolbar,
   .plugin-group-head,
   .endpoint-head,

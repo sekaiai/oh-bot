@@ -12,6 +12,7 @@ import type {
   AiEndpointConfig,
   BotMessage,
   Ds2ApiPluginConfig,
+  Ds2ApiRouteConfig,
   PersonaConfig,
   QingmengPluginConfig,
   SessionMessage
@@ -37,6 +38,13 @@ const qingmengIntentSchema = z.object({
   endpointId: z.string().nullable(),
   confidence: z.number().min(0).max(1),
   params: z.record(z.string()).default({})
+});
+
+const pluginRoutingSchema = z.object({
+  target: z.enum(['none', 'qweather', 'qingmeng', 'ds2api']),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().default(''),
+  ds2apiRouteId: z.string().nullable().default(null)
 });
 
 function toChatEndpoint(baseUrl: string): string {
@@ -90,6 +98,41 @@ function formatContextMessages(contextMessages: SessionMessage[]): string {
       return `${index + 1}. [${message.role}] ${name}: ${message.content}`;
     })
     .join('\n');
+}
+
+function createDs2ApiService(plugin: Ds2ApiPluginConfig, route: Ds2ApiRouteConfig): AiEndpointConfig {
+  return {
+    baseUrl: plugin.baseUrl,
+    apiKey: plugin.apiKey,
+    model: route.model,
+    timeoutMs: plugin.timeoutMs
+  };
+}
+
+export interface PluginRoutingCandidateSummary {
+  qweather: {
+    enabled: boolean;
+    intentPrompt: string;
+  };
+  qingmeng: {
+    enabled: boolean;
+    intentPrompt: string;
+  };
+  ds2api: {
+    enabled: boolean;
+    routes: Array<{
+      id: string;
+      name: string;
+      intentPrompt: string;
+    }>;
+  };
+}
+
+export interface PluginRoutingDecision {
+  target: 'none' | 'qweather' | 'qingmeng' | 'ds2api';
+  confidence: number;
+  reason: string;
+  ds2apiRouteId: string | null;
 }
 
 export class AiClient {
@@ -265,13 +308,14 @@ export class AiClient {
     message: BotMessage,
     contextMessages: SessionMessage[],
     persona: PersonaConfig,
-    route: Ds2ApiPluginConfig,
+    plugin: Ds2ApiPluginConfig,
+    route: Ds2ApiRouteConfig,
     options?: {
       fallbackContext?: string;
     }
   ): Promise<string> {
     const raw = await this.createChatCompletion(
-      route,
+      createDs2ApiService(plugin, route),
       [
         {
           role: 'system',
@@ -288,6 +332,7 @@ export class AiClient {
           role: 'user',
           content: [
             `路由名称: ${route.name}`,
+            `路由模型: ${route.model}`,
             `消息类型: ${message.chatType}`,
             `发送者: ${message.senderNickname || message.userId}`,
             `当前消息: ${message.cleanText || '(空文本)'}`,
@@ -306,6 +351,49 @@ export class AiClient {
 
     const parsed = replySchema.parse(JSON.parse(extractJsonPayload(raw)));
     return parsed.reply.trim();
+  }
+
+  async classifyPluginRoute(
+    message: BotMessage,
+    contextMessages: SessionMessage[],
+    candidates: PluginRoutingCandidateSummary,
+    service: AiEndpointConfig
+  ): Promise<PluginRoutingDecision> {
+    const raw = await this.createChatCompletion(
+      service,
+      [
+        {
+          role: 'system',
+          content: [
+            '你是 QQ 机器人的主路由器，只负责判断当前消息应该交给哪个插件处理。',
+            '优先级原则：',
+            '1. 天气、空气质量、预警、日出日落等实时天气请求走 qweather。',
+            '2. 图片/视频/语音/新闻/图片分析等外部接口能力走 qingmeng。',
+            '3. 其他普通问答、闲聊、技术问题、复杂分析默认走 ds2api，并为 ds2apiRouteId 选择最合适的路由。',
+            '4. 只有在当前消息明显不适合任何插件，且 ds2api 也未启用时，才返回 none。',
+            '如果 target=ds2api，必须返回一个可用的 ds2apiRouteId。',
+            '你不生成最终回复，只输出 JSON。',
+            '格式固定为 {"target":"ds2api","confidence":0.9,"reason":"...","ds2apiRouteId":"chat"}。'
+          ].join('\n')
+        },
+        {
+          role: 'user',
+          content: [
+            `当前消息: ${message.cleanText || '(空文本)'}`,
+            `消息图片数量: ${message.imageUrls.length}`,
+            message.imageUrls.length > 0 ? `消息图片链接:\n${message.imageUrls.join('\n')}` : '消息图片链接: 无',
+            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            `可用插件摘要:\n${JSON.stringify(candidates, null, 2)}`
+          ].join('\n')
+        }
+      ],
+      {
+        temperature: 0.1,
+        maxTokens: 500
+      }
+    );
+
+    return pluginRoutingSchema.parse(JSON.parse(extractJsonPayload(raw)));
   }
 
   async classifyQingmengIntent(

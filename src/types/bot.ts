@@ -220,12 +220,23 @@ export interface PluginConfigBase {
   enabled: boolean;
 }
 
-export interface Ds2ApiPluginConfig extends PluginConfigBase, AiEndpointConfig {
-  kind: 'ds2api';
-  triggerKeywords: string[];
+export interface Ds2ApiRouteConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  model: string;
+  intentPrompt: string;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
+}
+
+export interface Ds2ApiPluginConfig extends PluginConfigBase {
+  kind: 'ds2api';
+  baseUrl: string;
+  apiKey: string;
+  timeoutMs: number;
+  routes: Ds2ApiRouteConfig[];
 }
 
 export interface QWeatherPluginConfig extends PluginConfigBase {

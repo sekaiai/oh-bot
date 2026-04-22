@@ -74,11 +74,23 @@ async function loadPluginSummaries(diagnostics: Diagnostic[]): Promise<PluginSum
       const details: string[] = [];
 
       if (id === 'ds2api') {
-        const triggerKeywords = Array.isArray(raw.triggerKeywords) ? raw.triggerKeywords.length : 0;
-        details.push(`triggerKeywords=${triggerKeywords}`);
-        details.push(`model=${typeof raw.model === 'string' ? raw.model : '(unset)'}`);
+        const legacyRoute = typeof raw.model === 'string'
+          ? [{
+            id: 'legacy',
+            enabled: true
+          }]
+          : [];
+        const routes = Array.isArray(raw.routes) && raw.routes.length > 0 ? raw.routes : legacyRoute;
+        const enabledRoutes = routes.filter((route) => {
+          return typeof route === 'object' && route !== null && Boolean((route as Record<string, unknown>).enabled);
+        }).length;
+        details.push(`routes=${routes.length}`);
+        details.push(`enabledRoutes=${enabledRoutes}`);
         if (enabled && !raw.apiKey) {
           pushDiagnostic(diagnostics, 'warn', 'DS2API 已启用但 apiKey 为空');
+        }
+        if (enabled && enabledRoutes === 0) {
+          pushDiagnostic(diagnostics, 'warn', 'DS2API 已启用但没有启用中的模型路由');
         }
       } else if (id === 'qweather') {
         details.push(`apiHost=${typeof raw.apiHost === 'string' ? raw.apiHost : '(unset)'}`);

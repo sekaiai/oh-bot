@@ -9,6 +9,7 @@ import path from 'node:path';
 import { config } from '../config/index.js';
 import type {
   Ds2ApiPluginConfig,
+  Ds2ApiRouteConfig,
   PersonaRegistry,
   PluginConfig,
   PluginKind,
@@ -113,6 +114,19 @@ function getPluginFilePath(id: string): string {
   return path.join(pluginsDir, `${id}.json`);
 }
 
+function createDs2ApiRoute(route: Partial<Ds2ApiRouteConfig> & Pick<Ds2ApiRouteConfig, 'id' | 'name'>): Ds2ApiRouteConfig {
+  return {
+    id: route.id,
+    name: route.name,
+    enabled: route.enabled ?? true,
+    model: route.model ?? 'gpt-4o',
+    intentPrompt: route.intentPrompt ?? '',
+    systemPrompt: route.systemPrompt ?? '',
+    temperature: route.temperature ?? 0.3,
+    maxTokens: route.maxTokens ?? 1024
+  };
+}
+
 function getDefaultDs2ApiPlugin(): Ds2ApiPluginConfig {
   return {
     id: 'ds2api',
@@ -121,12 +135,73 @@ function getDefaultDs2ApiPlugin(): Ds2ApiPluginConfig {
     enabled: false,
     baseUrl: 'http://127.0.0.1:6011/v1',
     apiKey: '',
-    model: 'gpt-4o',
     timeoutMs: config.AI_TIMEOUT_MS,
-    triggerKeywords: [],
-    systemPrompt: '你是一个专注于深度推理和复杂问题处理的 QQ 助手。',
-    temperature: 0.3,
-    maxTokens: 1024
+    routes: [
+      createDs2ApiRoute({
+        id: 'chat',
+        name: '日常对话',
+        model: 'gpt-4o',
+        intentPrompt: '用于闲聊、简单问答、短回复、翻译、润色、解释常见概念、轻量建议。',
+        systemPrompt: '你负责自然、简洁、友好的日常回复，优先保持聊天感，不要过度展开。',
+        temperature: 0.7,
+        maxTokens: 640
+      }),
+      createDs2ApiRoute({
+        id: 'reasoning',
+        name: '复杂分析',
+        model: 'o3',
+        intentPrompt: '用于复杂分析、多步骤推理、方案比较、决策建议、长链路判断、严肃讨论。',
+        systemPrompt: '你负责更深入的分析和严谨推理，先抓关键矛盾，再给出结论和建议。',
+        temperature: 0.3,
+        maxTokens: 1400
+      }),
+      createDs2ApiRoute({
+        id: 'coding',
+        name: '代码技术',
+        model: 'gpt-5-codex',
+        intentPrompt: '用于编程、报错排查、代码解释、系统设计、接口联调、开发建议。',
+        systemPrompt: '你负责技术和代码问题，回答要直接、准确、可执行。',
+        temperature: 0.2,
+        maxTokens: 1600
+      })
+    ]
+  };
+}
+
+function normalizeDs2ApiPlugin(plugin: Partial<Ds2ApiPluginConfig>, fallback: Ds2ApiPluginConfig): Ds2ApiPluginConfig {
+  const legacyRoute = ('model' in plugin || 'systemPrompt' in plugin || 'temperature' in plugin || 'maxTokens' in plugin)
+    ? createDs2ApiRoute({
+      id: 'legacy',
+      name: '默认模型',
+      model: typeof (plugin as Record<string, unknown>).model === 'string' ? String((plugin as Record<string, unknown>).model) : fallback.routes[0]?.model ?? 'gpt-4o',
+      intentPrompt: '兼容旧配置迁移得到的默认路由。',
+      systemPrompt: typeof (plugin as Record<string, unknown>).systemPrompt === 'string' ? String((plugin as Record<string, unknown>).systemPrompt) : fallback.routes[0]?.systemPrompt ?? '',
+      temperature: typeof (plugin as Record<string, unknown>).temperature === 'number' ? Number((plugin as Record<string, unknown>).temperature) : fallback.routes[0]?.temperature ?? 0.3,
+      maxTokens: typeof (plugin as Record<string, unknown>).maxTokens === 'number' ? Number((plugin as Record<string, unknown>).maxTokens) : fallback.routes[0]?.maxTokens ?? 1024
+    })
+    : null;
+
+  const sourceRoutes = Array.isArray(plugin.routes) && plugin.routes.length > 0
+    ? plugin.routes
+    : legacyRoute
+      ? [legacyRoute]
+      : fallback.routes;
+
+  return {
+    ...fallback,
+    ...plugin,
+    id: 'ds2api',
+    kind: 'ds2api',
+    name: typeof plugin.name === 'string' && plugin.name.trim() ? plugin.name : fallback.name,
+    routes: sourceRoutes.map((route, index) => {
+      const fallbackRoute = fallback.routes[index] ?? fallback.routes[0];
+      return createDs2ApiRoute({
+        ...(fallbackRoute ?? route),
+        ...route,
+        id: typeof route.id === 'string' && route.id.trim() ? route.id : `route-${index + 1}`,
+        name: typeof route.name === 'string' && route.name.trim() ? route.name : `路由 ${index + 1}`
+      });
+    })
   };
 }
 
@@ -697,7 +772,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
 }
 
 type LegacyRuntimeSettings = {
-  routedAis?: Array<Partial<Ds2ApiPluginConfig>>;
+  routedAis?: Array<Record<string, unknown>>;
   qweather?: Partial<QWeatherPluginConfig>;
 };
 
@@ -710,14 +785,8 @@ async function loadDefaultPluginConfig(kind: PluginKind): Promise<PluginConfig> 
 
   if (kind === 'ds2api') {
     const fallback = getDefaultDs2ApiPlugin();
-    const legacyDs2Api = legacy?.routedAis?.find((item) => item.id === 'ds2api') ?? legacy?.routedAis?.[0];
-    return {
-      ...fallback,
-      ...legacyDs2Api,
-      id: 'ds2api',
-      kind: 'ds2api',
-      name: legacyDs2Api?.name || fallback.name
-    };
+    const legacyDs2Api = legacy?.routedAis?.find((item) => item.id === 'ds2api') ?? legacy?.routedAis?.[0] ?? {};
+    return normalizeDs2ApiPlugin(legacyDs2Api as Partial<Ds2ApiPluginConfig>, fallback);
   }
 
   if (kind === 'qingmeng') {
@@ -737,6 +806,10 @@ async function loadDefaultPluginConfig(kind: PluginKind): Promise<PluginConfig> 
 export async function loadPluginConfig(kind: PluginKind): Promise<PluginConfig> {
   const fallback = await loadDefaultPluginConfig(kind);
   const loaded = await readJsonFile<PluginConfig>(getPluginFilePath(kind), fallback);
+
+  if (kind === 'ds2api' && fallback.kind === 'ds2api') {
+    return normalizeDs2ApiPlugin(loaded as Partial<Ds2ApiPluginConfig>, fallback);
+  }
 
   if (kind === 'qingmeng' && loaded.kind === 'qingmeng' && fallback.kind === 'qingmeng') {
     return normalizeQingmengPlugin(loaded, fallback);

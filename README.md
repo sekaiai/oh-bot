@@ -93,10 +93,11 @@ ADMIN_SESSION_TTL_SECONDS=43200
 
 管理端新增了“插件配置”页面。
 
-当前内置两个插件：
+当前内置三个插件：
 
-- `ds2api`：命中关键词后切换到 `ds2api` 兼容接口处理
+- `ds2api`：默认执行层，主 AI 会按意图把普通问答、复杂分析、代码问题分发到不同模型路由
 - `qweather`：处理天气、空气质量、预警、日出日落等请求
+- `qingmeng`：处理图片、视频、语音、新闻、图片分析等外部接口能力
 
 每个插件：
 
@@ -107,10 +108,11 @@ ADMIN_SESSION_TTL_SECONDS=43200
 例如 `ds2api` 插件的典型配置：
 
 - `baseUrl`: `http://127.0.0.1:6011/v1`
-- `model`: `gpt-4o` 或 `o3`
-- `triggerKeywords`: `深度分析`、`认真想想`、`复杂推理`
+- `routes[0]`: 日常对话 -> `gpt-4o`
+- `routes[1]`: 复杂分析 -> `o3`
+- `routes[2]`: 代码技术 -> `gpt-5-codex`
 
-命中这些关键词时，请求会直接交给 `ds2api` 插件；未命中时仍走主 AI。
+当前流程是主 AI 先统一判断应该交给哪个插件；如果不是天气或外部接口类能力，就默认进入 `ds2api`，再从路由表里选择合适模型。
 
 ## 天气能力
 
@@ -119,8 +121,8 @@ ADMIN_SESSION_TTL_SECONDS=43200
 处理流程：
 
 1. `ReplyEngine` 先判断这条消息是否应该回复
-2. 命中天气类关键词后交给 `ToolRouter`
-3. `ToolRouter` 先调用和风 GeoAPI 做地点解析
+2. 主 AI 判断消息应该路由到哪个插件
+3. 当路由目标是 `qweather` 时，`ToolRouter` 调用和风 GeoAPI 做地点解析
 4. 再聚合查询：
    - 实时天气
    - 天气预警

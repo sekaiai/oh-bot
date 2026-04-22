@@ -62,15 +62,23 @@ const aiEndpointSchema = z.object({
   timeoutMs: z.number().int().positive()
 });
 
-const ds2apiPluginSchema = aiEndpointSchema.extend({
+const ds2apiRouteSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  model: z.string().min(1),
+  intentPrompt: z.string().min(1),
+  systemPrompt: z.string(),
+  temperature: z.number().min(0).max(2),
+  maxTokens: z.number().int().positive()
+});
+
+const ds2apiPluginSchema = aiEndpointSchema.omit({ model: true }).extend({
   id: z.string().min(1),
   kind: z.literal('ds2api'),
   name: z.string().min(1),
   enabled: z.boolean(),
-  triggerKeywords: z.array(z.string().min(1)),
-  systemPrompt: z.string().min(1),
-  temperature: z.number().min(0).max(2),
-  maxTokens: z.number().int().positive()
+  routes: z.array(ds2apiRouteSchema).min(1)
 });
 
 const qweatherPluginSchema = z.object({
@@ -131,6 +139,7 @@ export const pluginTestSchema = z.object({
   plugin: pluginConfigSchema,
   input: z.string().optional().default(''),
   endpointId: z.string().optional(),
+  routeId: z.string().optional(),
   imageUrl: z.string().optional()
 });
 

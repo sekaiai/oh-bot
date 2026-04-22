@@ -127,6 +127,7 @@ function sanitizeConfigSummary(plugins: PluginConfig[]) {
     pluginCount: plugins.length,
     enabledPluginCount: plugins.filter((item) => item.enabled).length,
     ds2apiEnabled: Boolean(ds2apiPlugin?.enabled),
+    ds2apiRouteCount: ds2apiPlugin?.kind === 'ds2api' ? ds2apiPlugin.routes.length : 0,
     qweatherApiHost: qweatherPlugin?.kind === 'qweather' ? qweatherPlugin.apiHost : config.QWEATHER_API_HOST,
     qweatherEnabled: Boolean(qweatherPlugin?.kind === 'qweather' && qweatherPlugin.enabled && qweatherPlugin.apiKey),
     maxContextMessages: config.MAX_CONTEXT_MESSAGES,
@@ -141,18 +142,33 @@ function isPluginKind(value: string): value is PluginKind {
   return value === 'ds2api' || value === 'qweather' || value === 'qingmeng';
 }
 
-async function testDs2ApiPlugin(plugin: Ds2ApiPluginConfig, input: string): Promise<PluginTestResponse> {
+async function testDs2ApiPlugin(plugin: Ds2ApiPluginConfig, input: string, routeId?: string): Promise<PluginTestResponse> {
   const startTime = Date.now();
   const aiClient = new AiClient();
+  const route = plugin.routes.find((item) => item.id === routeId) ?? plugin.routes.find((item) => item.enabled) ?? plugin.routes[0];
+  if (!route) {
+    throw new Error('DS2API 还没有可用路由');
+  }
+
   const prompt = input.trim() || '这是一条接口测试消息，请只回复“DS2API 测试成功”。';
-  const result = await aiClient.testChatCompletion(plugin, prompt);
+  const result = await aiClient.testChatCompletion(
+    {
+      baseUrl: plugin.baseUrl,
+      apiKey: plugin.apiKey,
+      model: route.model,
+      timeoutMs: plugin.timeoutMs
+    },
+    `${route.systemPrompt ? `${route.systemPrompt}\n\n` : ''}${prompt}`
+  );
 
   return {
     ok: true,
     message: 'DS2API 接口调用成功',
     elapsedMs: Date.now() - startTime,
     details: {
-      model: plugin.model,
+      routeId: route.id,
+      routeName: route.name,
+      model: route.model,
       endpoint: plugin.baseUrl,
       prompt,
       replyPreview: result.reply.slice(0, 400),
@@ -215,10 +231,11 @@ async function runPluginTest(
   plugin: PluginConfig,
   input: string,
   endpointId?: string,
+  routeId?: string,
   imageUrl = ''
 ): Promise<PluginTestResponse> {
   if (plugin.kind === 'ds2api') {
-    return testDs2ApiPlugin(plugin, input);
+    return testDs2ApiPlugin(plugin, input, routeId);
   }
 
   if (plugin.kind === 'qingmeng') {
@@ -439,7 +456,13 @@ export function createAdminServer(): Server {
             return;
           }
 
-          const result = await runPluginTest(parsed.data.plugin, parsed.data.input, parsed.data.endpointId, parsed.data.imageUrl ?? '');
+          const result = await runPluginTest(
+            parsed.data.plugin,
+            parsed.data.input,
+            parsed.data.endpointId,
+            parsed.data.routeId,
+            parsed.data.imageUrl ?? ''
+          );
           writeJson(response, 200, result, origin);
           return;
         }
