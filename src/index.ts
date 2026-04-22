@@ -14,7 +14,43 @@ import { NapcatSender } from './adapters/napcat/sender.js';
 import { NapcatWsClient } from './adapters/napcat/ws-client.js';
 import { startAdminServer } from './admin/server.js';
 import { ReplyEngine } from './services/reply-engine.js';
+import type { BotMessage, OutboundMessageContent, OutboundMessageSegment } from './types/bot.js';
 import { logger } from './utils/logger.js';
+
+function withGroupMention(message: BotMessage, outboundMessage: OutboundMessageContent): OutboundMessageContent {
+  if (message.chatType !== 'group' || !message.isAtBot) {
+    return outboundMessage;
+  }
+
+  const mentionSegments: OutboundMessageSegment[] = [
+    {
+      type: 'at',
+      data: {
+        qq: message.userId
+      }
+    },
+    {
+      type: 'text',
+      data: {
+        text: '\n'
+      }
+    }
+  ];
+
+  if (typeof outboundMessage === 'string') {
+    return [
+      ...mentionSegments,
+      {
+        type: 'text',
+        data: {
+          text: outboundMessage
+        }
+      }
+    ];
+  }
+
+  return [...mentionSegments, ...outboundMessage];
+}
 
 /**
  * 初始化并启动整个 Bot 进程。
@@ -80,15 +116,16 @@ async function bootstrap(): Promise<void> {
         'Reply decision generated'
       );
 
-      if (!decision.shouldReply || !decision.reply) {
+      const outboundMessage = decision.outboundMessage ?? decision.reply;
+      if (!decision.shouldReply || !outboundMessage) {
         return;
       }
 
-      await sender.sendText({
+      await sender.sendMessage({
         chatType: message.chatType,
         userId: message.userId,
         groupId: message.groupId,
-        message: decision.reply
+        message: withGroupMention(message, outboundMessage)
       });
     }
   });
