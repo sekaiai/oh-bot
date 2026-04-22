@@ -254,7 +254,7 @@
                 <p class="plugin-kicker">插件概览</p>
                 <strong>接口网关与参数规则</strong>
               </div>
-              <button type="button" class="ui-button" @click="addQingmengEndpoint(plugin.id)">
+              <button type="button" class="ui-button" @click="openQingmengEditor(plugin.id)">
                 新增接口
               </button>
             </div>
@@ -286,200 +286,17 @@
             </div>
 
             <div class="endpoint-stack">
-              <article v-for="endpoint in group.items" :key="endpoint.id" class="endpoint-card">
-                <div class="endpoint-head">
-                  <div class="endpoint-title-stack">
-                    <div class="endpoint-title-line">
-                      <input v-model="endpoint.name" class="ui-input endpoint-title-input" placeholder="接口名称" />
-                      <span class="plugin-id-badge">{{ endpoint.id }}</span>
-                    </div>
-                    <textarea
-                      v-model="endpoint.description"
-                      class="ui-textarea ui-textarea-tight"
-                      rows="2"
-                      placeholder="接口说明"
-                    />
-                  </div>
-
-                  <div class="endpoint-head-actions">
-                    <label class="switch-card compact-switch">
-                      <div>
-                        <strong>启用</strong>
-                        <p>关闭后不参与接口路由。</p>
-                      </div>
-                      <input v-model="endpoint.enabled" class="ui-checkbox" type="checkbox" />
-                    </label>
-                    <button
-                      type="button"
-                      class="ui-button"
-                      :disabled="isTesting(endpointTestKey(plugin.id, endpoint.id))"
-                      @click="testQingmengEndpoint(plugin.id, endpoint.id)"
-                    >
-                      {{ isTesting(endpointTestKey(plugin.id, endpoint.id)) ? '测试中...' : '测试接口' }}
-                    </button>
-                    <button type="button" class="ui-button ui-button-danger" @click="removeQingmengEndpoint(plugin.id, endpoint.id)">
-                      删除
-                    </button>
-                  </div>
+              <article v-for="endpoint in group.items" :key="endpoint.id" class="endpoint-summary-card">
+                <div class="endpoint-summary-copy">
+                  <h4>{{ endpoint.name }}</h4>
+                  <p class="endpoint-intent-text">{{ endpoint.intentPrompt || '未配置意图说明' }}</p>
                 </div>
 
-                <div class="endpoint-core-grid">
-                  <label class="field-block">
-                    <span class="field-label">接口 ID</span>
-                    <input v-model="endpoint.id" class="ui-input" placeholder="endpoint-id" />
-                  </label>
-
-                  <label class="field-block">
-                    <span class="field-label">分组</span>
-                    <select v-model="endpoint.group" class="ui-select">
-                      <option value="analysis">图片分析</option>
-                      <option value="tool">工具</option>
-                      <option value="text">文本</option>
-                      <option value="image">图片</option>
-                      <option value="video">视频</option>
-                      <option value="audio">语音</option>
-                    </select>
-                  </label>
-
-                  <label class="switch-card compact-switch">
-                    <div>
-                      <strong>随机分发</strong>
-                      <p>只在模糊意图下加入随机池。</p>
-                    </div>
-                    <input v-model="endpoint.fallbackEligible" class="ui-checkbox" type="checkbox" />
-                  </label>
-
-                  <label class="field-block field-span-3">
-                    <span class="field-label">接口地址</span>
-                    <input v-model="endpoint.url" class="ui-input" placeholder="https://api.317ak.cn/api/..." />
-                  </label>
-
-                  <label class="field-block field-span-3">
-                    <span class="field-label">意图说明</span>
-                    <textarea v-model="endpoint.intentPrompt" class="ui-textarea ui-textarea-tight" rows="2" placeholder="描述用户什么意图时应该命中这个接口" />
-                  </label>
-
-                  <label class="field-block field-span-3">
-                    <span class="field-label">意图别名</span>
-                    <textarea
-                      v-model="qingmengAliasForms[endpointTestKey(plugin.id, endpoint.id)]"
-                      class="ui-textarea ui-textarea-tight"
-                      rows="2"
-                      placeholder="一行一个，例如：JK&#10;jk图片&#10;制服图"
-                    />
-                  </label>
+                <div class="endpoint-summary-actions">
+                  <button type="button" class="ui-button" @click="openQingmengEditor(plugin.id, endpoint.id)">
+                    修改
+                  </button>
                 </div>
-
-                <div class="plugin-compact-grid plugin-compact-grid-2">
-                  <label class="field-block">
-                    <span class="field-label">测试文本</span>
-                    <input v-model="qingmengTestInputs[endpointTestKey(plugin.id, endpoint.id)]" class="ui-input" placeholder="测试消息" />
-                  </label>
-
-                  <label class="field-block">
-                    <span class="field-label">测试图片 URL</span>
-                    <input v-model="qingmengTestImages[endpointTestKey(plugin.id, endpoint.id)]" class="ui-input" placeholder="看图接口可填一张图片链接" />
-                  </label>
-                </div>
-
-                <details class="config-disclosure">
-                  <summary>高级配置</summary>
-                  <div class="disclosure-body endpoint-advanced-stack">
-                    <div class="plugin-compact-grid plugin-compact-grid-3">
-                      <label class="field-block">
-                        <span class="field-label">响应模式</span>
-                        <select v-model="endpoint.responseMode" class="ui-select">
-                          <option value="json_value">JSON 单值</option>
-                          <option value="json_list">JSON 列表</option>
-                          <option value="openai_text">OpenAI 文本</option>
-                          <option value="redirect_media">媒体直出</option>
-                        </select>
-                      </label>
-
-                      <label class="field-block">
-                        <span class="field-label">标题文案</span>
-                        <input v-model="endpoint.captionTemplate" class="ui-input" placeholder="发送前的说明文字" />
-                      </label>
-
-                      <label class="field-block">
-                        <span class="field-label">请求方式</span>
-                        <input v-model="endpoint.method" class="ui-input" readonly />
-                      </label>
-
-                      <label class="field-block">
-                        <span class="field-label">responsePath</span>
-                        <input v-model="endpoint.responsePath" class="ui-input" placeholder="例如 text / $self" />
-                      </label>
-
-                      <label class="field-block">
-                        <span class="field-label">listPath</span>
-                        <input v-model="endpoint.listPath" class="ui-input" placeholder="例如 data" />
-                      </label>
-
-                      <label class="field-block">
-                        <span class="field-label">itemTitlePath</span>
-                        <input v-model="endpoint.itemTitlePath" class="ui-input" placeholder="例如 title" />
-                      </label>
-
-                      <label class="field-block field-span-3">
-                        <span class="field-label">itemUrlPath</span>
-                        <input v-model="endpoint.itemUrlPath" class="ui-input" placeholder="例如 url / Url" />
-                      </label>
-                    </div>
-
-                    <section class="endpoint-params">
-                      <div class="plugin-group-head">
-                        <div>
-                          <p class="plugin-kicker">参数</p>
-                          <strong>{{ endpoint.parameters.length }} 项</strong>
-                        </div>
-                        <button type="button" class="ui-button" @click="addEndpointParam(plugin.id, endpoint.id)">
-                          新增参数
-                        </button>
-                      </div>
-
-                      <div v-if="endpoint.parameters.length > 0" class="endpoint-param-stack">
-                        <div v-for="parameter in endpoint.parameters" :key="parameter.id" class="endpoint-param-row">
-                          <input v-model="parameter.id" class="ui-input" placeholder="param-id" />
-                          <input v-model="parameter.name" class="ui-input" placeholder="参数名" />
-                          <input v-model="parameter.label" class="ui-input" placeholder="标题" />
-                          <select v-model="parameter.source" class="ui-select">
-                            <option value="fixed">固定值</option>
-                            <option value="intent">意图抽取</option>
-                            <option value="image_url">图片 URL</option>
-                          </select>
-                          <input v-model="parameter.defaultValue" class="ui-input" placeholder="默认值" />
-                          <label class="endpoint-param-check">
-                            <input v-model="parameter.required" class="ui-checkbox" type="checkbox" />
-                            <span>必填</span>
-                          </label>
-                          <button type="button" class="ui-button ui-button-ghost" @click="removeEndpointParam(plugin.id, endpoint.id, parameter.id)">
-                            删除
-                          </button>
-                          <textarea v-model="parameter.description" class="ui-textarea ui-textarea-tight endpoint-param-description" rows="2" placeholder="参数含义与抽取方式" />
-                        </div>
-                      </div>
-
-                      <p v-else class="inline-notice inline-notice-info">这个接口当前没有参数。</p>
-                    </section>
-                  </div>
-                </details>
-
-                <section
-                  v-if="testResults[endpointTestKey(plugin.id, endpoint.id)]"
-                  class="plugin-diagnostics"
-                  :class="testResults[endpointTestKey(plugin.id, endpoint.id)]?.ok ? 'plugin-diagnostics-success' : 'plugin-diagnostics-error'"
-                >
-                  <div class="plugin-diagnostics-head">
-                    <div>
-                      <p class="plugin-kicker">Diagnostic Output</p>
-                      <strong>{{ testResults[endpointTestKey(plugin.id, endpoint.id)]?.message }}</strong>
-                    </div>
-                    <span class="plugin-diagnostics-latency">{{ testResults[endpointTestKey(plugin.id, endpoint.id)]?.elapsedMs }} ms</span>
-                  </div>
-
-                  <pre class="plugin-diagnostics-body">{{ formatDiagnostics(testResults[endpointTestKey(plugin.id, endpoint.id)]?.details) }}</pre>
-                </section>
               </article>
             </div>
           </div>
@@ -490,11 +307,93 @@
     <article v-else class="surface-panel empty-panel">
       {{ pluginStore.loading ? '正在读取插件配置...' : '暂无插件配置数据' }}
     </article>
+
+    <AModal
+      v-model:visible="qingmengEditor.visible"
+      :title="qingmengEditorTitle"
+      :footer="false"
+      :width="980"
+      unmount-on-close
+      @cancel="closeQingmengEditor"
+    >
+      <div class="field-stack">
+        <div class="modal-summary-list">
+          <div class="modal-summary-item">
+            <span>插件</span>
+            <strong>{{ qingmengEditor.pluginName || '倾梦API' }}</strong>
+          </div>
+          <div class="modal-summary-item">
+            <span>当前接口</span>
+            <strong>{{ qingmengEditor.endpointId || '新接口' }}</strong>
+          </div>
+          <div class="modal-summary-item">
+            <span>状态</span>
+            <strong>{{ qingmengEditor.isCreating ? '新增中' : '编辑中' }}</strong>
+          </div>
+        </div>
+
+        <p v-if="qingmengEditor.feedback" class="inline-feedback" :class="qingmengEditor.feedbackError ? 'inline-feedback-error' : 'inline-feedback-success'">
+          {{ qingmengEditor.feedback }}
+        </p>
+
+        <label class="field-block">
+          <span class="field-label">接口 JSON</span>
+          <textarea
+            v-model="qingmengEditor.json"
+            class="ui-textarea qingmeng-json-editor"
+            spellcheck="false"
+            rows="22"
+          />
+        </label>
+
+        <div class="plugin-compact-grid plugin-compact-grid-2">
+          <label class="field-block">
+            <span class="field-label">测试文本</span>
+            <input v-model="qingmengEditor.testInput" class="ui-input" placeholder="测试消息" />
+          </label>
+
+          <label class="field-block">
+            <span class="field-label">测试图片 URL</span>
+            <input v-model="qingmengEditor.testImageUrl" class="ui-input" placeholder="看图接口可填一张图片链接" />
+          </label>
+        </div>
+
+        <section
+          v-if="qingmengEditor.testResult"
+          class="plugin-diagnostics"
+          :class="qingmengEditor.testResult.ok ? 'plugin-diagnostics-success' : 'plugin-diagnostics-error'"
+        >
+          <div class="plugin-diagnostics-head">
+            <div>
+              <p class="plugin-kicker">Diagnostic Output</p>
+              <strong>{{ qingmengEditor.testResult.message }}</strong>
+            </div>
+            <span class="plugin-diagnostics-latency">{{ qingmengEditor.testResult.elapsedMs }} ms</span>
+          </div>
+
+          <pre class="plugin-diagnostics-body">{{ formatDiagnostics(qingmengEditor.testResult.details) }}</pre>
+        </section>
+
+        <div class="modal-footer-actions">
+          <button type="button" class="ui-button" @click="closeQingmengEditor">
+            取消
+          </button>
+          <button type="button" class="ui-button" :disabled="qingmengEditor.testing" @click="testQingmengEditor">
+            {{ qingmengEditor.testing ? '测试中...' : '测试' }}
+          </button>
+          <button type="button" class="ui-button ui-button-primary" :disabled="qingmengEditor.saving" @click="saveQingmengEditor">
+            {{ qingmengEditor.saving ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </AModal>
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { Modal as AModal } from '@arco-design/web-vue';
+import { z } from 'zod';
 import { ApiError } from '../api/client';
 import { usePluginStore } from '../stores/plugins';
 import type {
@@ -503,20 +402,68 @@ import type {
   PluginConfig,
   PluginTestResult,
   QingmengEndpointConfig,
-  QingmengEndpointParameter,
   QingmengPluginConfig
 } from '../types';
 
+const qingmengParameterJsonSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string(),
+  source: z.enum(['fixed', 'intent', 'image_url']),
+  required: z.boolean(),
+  defaultValue: z.string()
+});
+
+const qingmengEndpointJsonSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  group: z.enum(['image', 'video', 'audio', 'text', 'tool', 'analysis']),
+  description: z.string().min(1),
+  intentAliases: z.array(z.string().min(1)),
+  fallbackEligible: z.boolean(),
+  method: z.literal('GET'),
+  url: z.string().url(),
+  intentPrompt: z.string().min(1),
+  parameters: z.array(qingmengParameterJsonSchema),
+  responseMode: z.enum(['json_value', 'json_list', 'openai_text', 'redirect_media']),
+  responsePath: z.string().optional(),
+  listPath: z.string().optional(),
+  itemTitlePath: z.string().optional(),
+  itemUrlPath: z.string().optional(),
+  captionTemplate: z.string().optional(),
+  sampleInput: z.string(),
+  sampleImageUrl: z.union([z.string().url(), z.literal('')]).optional()
+});
+
 const pluginStore = usePluginStore();
 const plugins = ref<PluginConfig[]>([]);
-const qingmengAliasForms = ref<Record<string, string>>({});
 const pluginTestInputs = ref<Record<string, string>>({});
-const qingmengTestInputs = ref<Record<string, string>>({});
-const qingmengTestImages = ref<Record<string, string>>({});
 const testResults = ref<Record<string, PluginTestResult | null>>({});
 const notice = ref({
   text: '',
   error: false
+});
+
+const qingmengEditor = ref({
+  visible: false,
+  pluginId: '',
+  pluginName: '',
+  endpointId: '',
+  isCreating: false,
+  json: '',
+  testInput: '',
+  testImageUrl: '',
+  testResult: null as PluginTestResult | null,
+  feedback: '',
+  feedbackError: false,
+  saving: false,
+  testing: false
+});
+
+const qingmengEditorTitle = computed(() => {
+  return qingmengEditor.value.isCreating ? '新增倾梦接口' : `修改接口：${qingmengEditor.value.endpointId}`;
 });
 
 function clonePlugins(items: PluginConfig[]): PluginConfig[] {
@@ -559,25 +506,15 @@ function pluginEnabledDescription(plugin: PluginConfig): string {
   return '关闭后，主路由不再把图片、视频、新闻、分析类请求交给倾梦插件。';
 }
 
-function endpointTestKey(pluginId: string, endpointId: string): string {
-  return `${pluginId}:${endpointId}`;
-}
-
 function routeTestKey(pluginId: string, routeId: string): string {
   return `${pluginId}:route:${routeId}`;
 }
 
 function syncLocalState(items: PluginConfig[]): void {
   const previousPluginInputs = { ...pluginTestInputs.value };
-  const previousAliasForms = { ...qingmengAliasForms.value };
-  const previousEndpointInputs = { ...qingmengTestInputs.value };
-  const previousEndpointImages = { ...qingmengTestImages.value };
 
   plugins.value = clonePlugins(items);
   pluginTestInputs.value = {};
-  qingmengAliasForms.value = {};
-  qingmengTestInputs.value = {};
-  qingmengTestImages.value = {};
 
   for (const plugin of plugins.value) {
     if (plugin.kind === 'ds2api') {
@@ -587,20 +524,17 @@ function syncLocalState(items: PluginConfig[]): void {
 
     if (plugin.kind === 'qweather') {
       pluginTestInputs.value[plugin.id] = previousPluginInputs[plugin.id] || '北京';
-      continue;
-    }
-
-    for (const endpoint of plugin.endpoints) {
-      const key = endpointTestKey(plugin.id, endpoint.id);
-      qingmengAliasForms.value[key] = previousAliasForms[key] || endpoint.intentAliases.join('\n');
-      qingmengTestInputs.value[key] = previousEndpointInputs[key] || endpoint.sampleInput || '';
-      qingmengTestImages.value[key] = previousEndpointImages[key] || endpoint.sampleImageUrl || '';
     }
   }
 }
 
 function getPlugin(pluginId: string): PluginConfig | undefined {
   return plugins.value.find((item) => item.id === pluginId);
+}
+
+function getQingmengPlugin(pluginId: string): QingmengPluginConfig | undefined {
+  const plugin = getPlugin(pluginId);
+  return plugin?.kind === 'qingmeng' ? plugin : undefined;
 }
 
 function isSaving(key: string): boolean {
@@ -612,22 +546,6 @@ function isTesting(key: string): boolean {
 }
 
 function normalizePlugin(plugin: PluginConfig): PluginConfig {
-  if (plugin.kind === 'qingmeng') {
-    return {
-      ...plugin,
-      endpoints: plugin.endpoints.map((endpoint) => {
-        const key = endpointTestKey(plugin.id, endpoint.id);
-        return {
-          ...endpoint,
-          intentAliases: (qingmengAliasForms.value[key] ?? '')
-            .split('\n')
-            .map((item) => item.trim())
-            .filter(Boolean)
-        };
-      })
-    };
-  }
-
   return JSON.parse(JSON.stringify(plugin)) as PluginConfig;
 }
 
@@ -672,30 +590,18 @@ function buildDefaultDs2ApiRoute(): Ds2ApiRouteConfig {
   };
 }
 
-function buildDefaultEndpointParameter(): QingmengEndpointParameter {
-  return {
-    id: crypto.randomUUID(),
-    name: '',
-    label: '',
-    description: '',
-    source: 'intent',
-    required: false,
-    defaultValue: ''
-  };
-}
-
 function buildDefaultEndpoint(): QingmengEndpointConfig {
   return {
     id: `endpoint-${Math.random().toString(36).slice(2, 8)}`,
     name: '新接口',
     enabled: true,
     group: 'tool',
-    description: '',
+    description: '请填写接口说明',
     intentAliases: [],
     fallbackEligible: false,
     method: 'GET',
-    url: '',
-    intentPrompt: '',
+    url: 'https://api.317ak.cn/api/example',
+    intentPrompt: '请填写这个接口应该命中的用户意图',
     parameters: [],
     responseMode: 'json_value',
     responsePath: '',
@@ -706,6 +612,71 @@ function buildDefaultEndpoint(): QingmengEndpointConfig {
     sampleInput: '',
     sampleImageUrl: ''
   };
+}
+
+function buildQingmengEditorPlugin(plugin: QingmengPluginConfig, originalEndpointId: string, nextEndpoint: QingmengEndpointConfig): QingmengPluginConfig {
+  const nextPlugin = normalizePlugin(plugin) as QingmengPluginConfig;
+  const endpointIndex = nextPlugin.endpoints.findIndex((item) => item.id === originalEndpointId);
+
+  if (endpointIndex >= 0) {
+    nextPlugin.endpoints.splice(endpointIndex, 1, nextEndpoint);
+  } else {
+    nextPlugin.endpoints.push(nextEndpoint);
+  }
+
+  return nextPlugin;
+}
+
+function parseQingmengEndpointJson(): QingmengEndpointConfig {
+  const parsedJson = JSON.parse(qingmengEditor.value.json) as unknown;
+  const endpoint = qingmengEndpointJsonSchema.parse(parsedJson);
+  return {
+    ...endpoint,
+    sampleImageUrl: endpoint.sampleImageUrl ?? ''
+  };
+}
+
+function validateEndpointIdUniqueness(plugin: QingmengPluginConfig, originalEndpointId: string, nextEndpointId: string): void {
+  const exists = plugin.endpoints.some((endpoint) => endpoint.id === nextEndpointId && endpoint.id !== originalEndpointId);
+  if (exists) {
+    throw new Error(`接口 ID「${nextEndpointId}」已存在，请更换后再保存。`);
+  }
+}
+
+function resetQingmengEditorFeedback(): void {
+  qingmengEditor.value.feedback = '';
+  qingmengEditor.value.feedbackError = false;
+}
+
+function openQingmengEditor(pluginId: string, endpointId = ''): void {
+  const plugin = getQingmengPlugin(pluginId);
+  if (!plugin) {
+    return;
+  }
+
+  const endpoint = endpointId
+    ? plugin.endpoints.find((item) => item.id === endpointId) ?? buildDefaultEndpoint()
+    : buildDefaultEndpoint();
+
+  qingmengEditor.value = {
+    visible: true,
+    pluginId,
+    pluginName: plugin.name,
+    endpointId,
+    isCreating: !endpointId,
+    json: JSON.stringify(endpoint, null, 2),
+    testInput: endpoint.sampleInput || '',
+    testImageUrl: endpoint.sampleImageUrl || '',
+    testResult: null,
+    feedback: '',
+    feedbackError: false,
+    saving: false,
+    testing: false
+  };
+}
+
+function closeQingmengEditor(): void {
+  qingmengEditor.value.visible = false;
 }
 
 function addDs2ApiRoute(pluginId: string): void {
@@ -725,62 +696,6 @@ function removeDs2ApiRoute(pluginId: string, routeId: string): void {
 
   plugin.routes = plugin.routes.filter((route) => route.id !== routeId);
   delete testResults.value[routeTestKey(pluginId, routeId)];
-}
-
-function addQingmengEndpoint(pluginId: string): void {
-  const plugin = getPlugin(pluginId);
-  if (!plugin || plugin.kind !== 'qingmeng') {
-    return;
-  }
-
-  const endpoint = buildDefaultEndpoint();
-  plugin.endpoints.push(endpoint);
-  const key = endpointTestKey(plugin.id, endpoint.id);
-  qingmengAliasForms.value[key] = '';
-  qingmengTestInputs.value[key] = '';
-  qingmengTestImages.value[key] = '';
-}
-
-function removeQingmengEndpoint(pluginId: string, endpointId: string): void {
-  const plugin = getPlugin(pluginId);
-  if (!plugin || plugin.kind !== 'qingmeng') {
-    return;
-  }
-
-  plugin.endpoints = plugin.endpoints.filter((endpoint) => endpoint.id !== endpointId);
-  const key = endpointTestKey(plugin.id, endpointId);
-  delete qingmengAliasForms.value[key];
-  delete qingmengTestInputs.value[key];
-  delete qingmengTestImages.value[key];
-  delete testResults.value[key];
-}
-
-function addEndpointParam(pluginId: string, endpointId: string): void {
-  const plugin = getPlugin(pluginId);
-  if (!plugin || plugin.kind !== 'qingmeng') {
-    return;
-  }
-
-  const endpoint = plugin.endpoints.find((item) => item.id === endpointId);
-  if (!endpoint) {
-    return;
-  }
-
-  endpoint.parameters.push(buildDefaultEndpointParameter());
-}
-
-function removeEndpointParam(pluginId: string, endpointId: string, paramId: string): void {
-  const plugin = getPlugin(pluginId);
-  if (!plugin || plugin.kind !== 'qingmeng') {
-    return;
-  }
-
-  const endpoint = plugin.endpoints.find((item) => item.id === endpointId);
-  if (!endpoint) {
-    return;
-  }
-
-  endpoint.parameters = endpoint.parameters.filter((parameter) => parameter.id !== paramId);
 }
 
 async function load(): Promise<void> {
@@ -863,31 +778,62 @@ async function testDs2ApiRoute(pluginId: string, routeId: string): Promise<void>
   }
 }
 
-async function testQingmengEndpoint(pluginId: string, endpointId: string): Promise<void> {
-  const plugin = getPlugin(pluginId);
-  if (!plugin || plugin.kind !== 'qingmeng') {
+async function testQingmengEditor(): Promise<void> {
+  const plugin = getQingmengPlugin(qingmengEditor.value.pluginId);
+  if (!plugin) {
     return;
   }
 
-  const payload = normalizePlugin(plugin);
-  const key = endpointTestKey(pluginId, endpointId);
+  resetQingmengEditorFeedback();
+  qingmengEditor.value.testing = true;
 
   try {
-    const result = await pluginStore.testPlugin(payload, {
-      endpointId,
-      input: qingmengTestInputs.value[key] ?? '',
-      imageUrl: qingmengTestImages.value[key] ?? ''
-    }, key);
-    testResults.value[key] = result;
-    notice.value = { text: `接口测试完成：${endpointId}`, error: !result.ok };
+    const endpoint = parseQingmengEndpointJson();
+    validateEndpointIdUniqueness(plugin, qingmengEditor.value.endpointId, endpoint.id);
+    const payload = buildQingmengEditorPlugin(plugin, qingmengEditor.value.endpointId, endpoint);
+    const result = await pluginStore.testPlugin(
+      payload,
+      {
+        endpointId: endpoint.id,
+        input: qingmengEditor.value.testInput,
+        imageUrl: qingmengEditor.value.testImageUrl
+      },
+      'qingmeng-editor'
+    );
+    qingmengEditor.value.testResult = result;
+    qingmengEditor.value.feedback = `接口测试完成：${endpoint.id}`;
+    qingmengEditor.value.feedbackError = !result.ok;
   } catch (error) {
-    testResults.value[key] = null;
-    if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
-      return;
-    }
+    qingmengEditor.value.testResult = null;
+    qingmengEditor.value.feedback = error instanceof ApiError ? error.message : error instanceof Error ? error.message : '接口测试失败';
+    qingmengEditor.value.feedbackError = true;
+  } finally {
+    qingmengEditor.value.testing = false;
+  }
+}
 
-    notice.value = { text: `接口测试失败：${endpointId}`, error: true };
+async function saveQingmengEditor(): Promise<void> {
+  const plugin = getQingmengPlugin(qingmengEditor.value.pluginId);
+  if (!plugin) {
+    return;
+  }
+
+  resetQingmengEditorFeedback();
+  qingmengEditor.value.saving = true;
+
+  try {
+    const endpoint = parseQingmengEndpointJson();
+    validateEndpointIdUniqueness(plugin, qingmengEditor.value.endpointId, endpoint.id);
+    const payload = buildQingmengEditorPlugin(plugin, qingmengEditor.value.endpointId, endpoint);
+    await pluginStore.savePlugin(payload);
+    syncLocalState(pluginStore.items);
+    notice.value = { text: `倾梦接口 ${endpoint.name} 已保存`, error: false };
+    closeQingmengEditor();
+  } catch (error) {
+    qingmengEditor.value.feedback = error instanceof ApiError ? error.message : error instanceof Error ? error.message : '接口保存失败';
+    qingmengEditor.value.feedbackError = true;
+  } finally {
+    qingmengEditor.value.saving = false;
   }
 }
 
