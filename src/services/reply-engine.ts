@@ -23,7 +23,7 @@ import type {
 } from '../types/bot.js';
 import { logger } from '../utils/logger.js';
 import { AiClient } from './ai-client.js';
-import { loadPersonas, loadRules } from './data-repository.js';
+import { loadPersonas, loadPluginConfigs, loadRules } from './data-repository.js';
 import { SessionStore } from './session-store.js';
 import { ToolRouter } from './tool-router.js';
 
@@ -134,10 +134,11 @@ export class ReplyEngine {
    */
   async decideAndGenerate(message: BotMessage): Promise<ReplyDecision> {
     const chatKey = getChatKey(message);
-    const [rules, personas, session] = await Promise.all([
+    const [rules, personas, session, plugins] = await Promise.all([
       loadRules(),
       loadPersonas(),
-      this.sessionStore.getSession(chatKey)
+      this.sessionStore.getSession(chatKey),
+      loadPluginConfigs()
     ]);
 
     // AI 总开关关闭时仍记录入站消息，便于后续重新开启后保留上下文连续性。
@@ -218,7 +219,17 @@ export class ReplyEngine {
 
       try {
         // 只有在通过硬规则后，才值得消耗一次模型调用做价值评分。
-        const decision = await this.aiClient.scoreGroupReplyCandidate(message, contextMessages, rules.botNames);
+        const decision = await this.aiClient.scoreGroupReplyCandidate(
+          message,
+          contextMessages,
+          rules.botNames,
+          {
+            baseUrl: config.AI_BASE_URL,
+            apiKey: config.AI_API_KEY,
+            model: config.AI_MODEL,
+            timeoutMs: config.AI_TIMEOUT_MS
+          }
+        );
         score = clampScore(decision.score);
 
         if (score >= 0.75) {
@@ -265,7 +276,7 @@ export class ReplyEngine {
     try {
       // 工具调用放在“确定要回复”之后，而不是每条消息都先查天气，
       // 这样可以复用现有的触发/冷却/去重机制，避免群聊里无意义地消耗外部 API 配额。
-      const toolResolution = await this.toolRouter.resolve(message);
+      const toolResolution = await this.toolRouter.resolve(message, plugins, generationContext, persona);
 
       if (toolResolution.handled && toolResolution.reply && toolResolution.reason) {
         await this.sessionStore.recordAssistantReply(chatKey, toolResolution.reply, now, toolResolution.reason);
@@ -284,6 +295,12 @@ export class ReplyEngine {
         generationContext,
         persona,
         finalReason,
+        {
+          baseUrl: config.AI_BASE_URL,
+          apiKey: config.AI_API_KEY,
+          model: config.AI_MODEL,
+          timeoutMs: config.AI_TIMEOUT_MS
+        },
         toolResolution.toolContext
       );
       await this.sessionStore.recordAssistantReply(chatKey, reply, now, finalReason);

@@ -1,0 +1,46 @@
+{
+  "_comment": "DS2API 配置文件示例 - 复制为 config.json 使用",
+  "_doc": "详细文档: https://github.com/CJackHwang/ds2api",
+  "accounts": [
+    {
+      "email": "jasrnine@gmail.com",
+      "password": "KWcCuFXwAzk1y7DZHonv"
+    },
+    {
+      "email": "jasrnine@qq.com",
+      "password": "WeqsQULBgF7bPsBqkDVK"
+    }
+  ],
+  "admin": {
+    "jwt_expire_hours": 24
+  },
+  "auto_delete": {
+    "mode": "none"
+  },
+  "claude_mapping": {
+    "fast": "deepseek-chat",
+    "slow": "deepseek-reasoner"
+  },
+  "compat": {
+    "wide_input_strict_output": true,
+    "strip_reference_markers": true
+  },
+  "embeddings": {
+    "provider": "deterministic"
+  },
+  "keys": [
+    "sk-27f619f57fa14190986d38ad4d112a81"
+  ],
+  "model_aliases": {
+    "gpt-4o": "deepseek-chat",
+    "gpt-5-codex": "deepseek-reasoner",
+    "o3": "deepseek-reasoner-search"
+  },
+  "responses": {
+    "store_ttl_seconds": 900
+  },
+  "runtime": {
+    "account_max_inflight": 2,
+    "token_refresh_interval_hours": 6
+  }
+}

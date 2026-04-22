@@ -4,15 +4,25 @@
  * 该模块负责把 `data/` 目录中的 JSON 文件统一读取为内存结构，
  * 避免业务层到处散落文件路径和默认值逻辑。
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config/index.js';
-import type { PersonaRegistry, RuleConfig, SessionsData } from '../types/bot.js';
+import type {
+  Ds2ApiPluginConfig,
+  PersonaRegistry,
+  PluginConfig,
+  PluginKind,
+  QWeatherPluginConfig,
+  RuleConfig,
+  SessionsData
+} from '../types/bot.js';
 
 const dataDir = path.resolve(process.cwd(), config.DATA_DIR);
 const rulesPath = path.join(dataDir, 'rules.json');
 const personasPath = path.join(dataDir, 'personas.json');
 const sessionsPath = path.join(dataDir, 'sessions.json');
+const runtimeSettingsPath = path.join(dataDir, 'runtime-settings.json');
+const pluginsDir = path.join(dataDir, 'plugins');
 
 /**
  * 读取 JSON 文件并在失败时回退到给定默认值。
@@ -42,6 +52,7 @@ async function writeJsonFile<T>(filePath: string, value: T): Promise<void> {
  */
 export async function ensureDataDir(): Promise<void> {
   await mkdir(dataDir, { recursive: true });
+  await mkdir(pluginsDir, { recursive: true });
 }
 
 /**
@@ -96,6 +107,98 @@ export async function savePersonas(personas: PersonaRegistry): Promise<void> {
   await writeJsonFile(personasPath, personas);
 }
 
+function getPluginFilePath(id: string): string {
+  return path.join(pluginsDir, `${id}.json`);
+}
+
+function getDefaultDs2ApiPlugin(): Ds2ApiPluginConfig {
+  return {
+    id: 'ds2api',
+    kind: 'ds2api',
+    name: 'DS2API',
+    enabled: false,
+    baseUrl: 'http://127.0.0.1:6011/v1',
+    apiKey: '',
+    model: 'gpt-4o',
+    timeoutMs: config.AI_TIMEOUT_MS,
+    triggerKeywords: [],
+    systemPrompt: '你是一个专注于深度推理和复杂问题处理的 QQ 助手。',
+    temperature: 0.3,
+    maxTokens: 1024
+  };
+}
+
+function getDefaultQWeatherPlugin(): QWeatherPluginConfig {
+  return {
+    id: 'qweather',
+    kind: 'qweather',
+    name: '和风天气',
+    enabled: true,
+    apiHost: config.QWEATHER_API_HOST,
+    apiKey: config.QWEATHER_API_KEY,
+    lang: config.QWEATHER_LANG
+  };
+}
+
+type LegacyRuntimeSettings = {
+  routedAis?: Array<Partial<Ds2ApiPluginConfig>>;
+  qweather?: Partial<QWeatherPluginConfig>;
+};
+
+async function loadLegacyRuntimeSettings(): Promise<LegacyRuntimeSettings | null> {
+  return readJsonFile<LegacyRuntimeSettings | null>(runtimeSettingsPath, null);
+}
+
+async function loadDefaultPluginConfig(kind: PluginKind): Promise<PluginConfig> {
+  const legacy = await loadLegacyRuntimeSettings();
+
+  if (kind === 'ds2api') {
+    const fallback = getDefaultDs2ApiPlugin();
+    const legacyDs2Api = legacy?.routedAis?.find((item) => item.id === 'ds2api') ?? legacy?.routedAis?.[0];
+    return {
+      ...fallback,
+      ...legacyDs2Api,
+      id: 'ds2api',
+      kind: 'ds2api',
+      name: legacyDs2Api?.name || fallback.name
+    };
+  }
+
+  const fallback = getDefaultQWeatherPlugin();
+  return {
+    ...fallback,
+    ...legacy?.qweather,
+    id: 'qweather',
+    kind: 'qweather',
+    name: fallback.name
+  };
+}
+
+export async function loadPluginConfig(kind: PluginKind): Promise<PluginConfig> {
+  const fallback = await loadDefaultPluginConfig(kind);
+  return readJsonFile<PluginConfig>(getPluginFilePath(kind), fallback);
+}
+
+export async function loadPluginConfigs(): Promise<PluginConfig[]> {
+  const defaults = await Promise.all([loadPluginConfig('ds2api'), loadPluginConfig('qweather')]);
+
+  try {
+    const existingFiles = await readdir(pluginsDir);
+    const extraPluginFiles = existingFiles.filter((file) => file.endsWith('.json') && !['ds2api.json', 'qweather.json'].includes(file));
+    const extras = await Promise.all(
+      extraPluginFiles.map((file) => readJsonFile<PluginConfig | null>(path.join(pluginsDir, file), null))
+    );
+
+    return [...defaults, ...extras.filter((item): item is PluginConfig => Boolean(item))];
+  } catch {
+    return defaults;
+  }
+}
+
+export async function savePluginConfig(plugin: PluginConfig): Promise<void> {
+  await writeJsonFile(getPluginFilePath(plugin.id), plugin);
+}
+
 /**
  * 读取所有会话状态。
  */
@@ -106,4 +209,4 @@ export async function loadSessionsData(): Promise<SessionsData> {
 }
 
 /** 会话状态文件路径，供 store 层统一写回。 */
-export { sessionsPath, rulesPath, personasPath };
+export { sessionsPath, rulesPath, personasPath, runtimeSettingsPath, pluginsDir };

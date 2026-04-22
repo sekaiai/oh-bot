@@ -5,9 +5,10 @@
   "privateBlacklist": [],
   "groupBlacklist": [],
   "botNames": [
-    "oh-bot"
+    "oh-bot",
+    "群主"
   ],
-  "requireAtInGroup": true,
+  "requireAtInGroup": false,
   "aiEnabled": true,
   "commandPrefix": "/",
   "cooldownSeconds": 3

@@ -16,6 +16,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@arco-design/web-vue": "^2.58.0",
     "axios": "^1.9.0",
     "dotenv": "^16.4.5",
     "pinia": "^3.0.3",
@@ -26,9 +27,11 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@arco-plugins/vite-vue": "^1.4.6",
     "@types/node": "^22.10.1",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-vue": "^6.0.1",
+    "less": "^4.6.4",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^7.1.5"

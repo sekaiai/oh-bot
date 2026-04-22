@@ -30,6 +30,9 @@ pnpm start
 
 ## 环境变量
 
+主 AI 仍然固定读取 `.env`。
+插件配置会单独保存到 `data/plugins/*.json`，旧的 `data/runtime-settings.json` 仅作为兼容迁移来源。
+
 参考 [.env.example](./.env.example)：
 
 ```env
@@ -54,11 +57,30 @@ ADMIN_WEB_ORIGIN=http://127.0.0.1:5173
 ADMIN_SESSION_TTL_SECONDS=43200
 ```
 
-天气能力至少需要配置：
+如果没配置和风 Key，机器人命中天气类请求时会直接返回配置缺失提示，而不是伪造天气结果。
 
-- `QWEATHER_API_KEY`
+## 插件配置
 
-如果没配置，机器人命中天气类请求时会直接返回配置缺失提示，而不是伪造天气结果。
+管理端新增了“插件配置”页面。
+
+当前内置两个插件：
+
+- `ds2api`：命中关键词后切换到 `ds2api` 兼容接口处理
+- `qweather`：处理天气、空气质量、预警、日出日落等请求
+
+每个插件：
+
+- 独立展示
+- 独立保存
+- 独立落盘到 `data/plugins/<plugin-id>.json`
+
+例如 `ds2api` 插件的典型配置：
+
+- `baseUrl`: `http://127.0.0.1:6011/v1`
+- `model`: `gpt-4o` 或 `o3`
+- `triggerKeywords`: `深度分析`、`认真想想`、`复杂推理`
+
+命中这些关键词时，请求会直接交给 `ds2api` 插件；未命中时仍走主 AI。
 
 ## 天气能力
 
@@ -196,6 +218,7 @@ await sender.sendMessage({
 
 - 单密码登录（`ADMIN_PASSWORD`）
 - 运行概览查看
+- 插件配置（DS2API / 和风天气）
 - `rules.json` 可视化编辑
 - `personas.json` 可视化编辑
 - `sessions.json` 会话查询

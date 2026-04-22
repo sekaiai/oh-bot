@@ -1,7 +1,28 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { loadPersonas, loadRules, loadSessionsData, savePersonas, saveRules } from '../services/data-repository.js';
+import {
+  loadPersonas,
+  loadPluginConfig,
+  loadPluginConfigs,
+  loadRules,
+  loadSessionsData,
+  savePersonas,
+  savePluginConfig,
+  saveRules,
+} from '../services/data-repository.js';
 import { config } from '../config/index.js';
+import type {
+  ChatSession,
+  Ds2ApiPluginConfig,
+  PersonaRegistry,
+  PluginConfig,
+  PluginKind,
+  QWeatherPluginConfig,
+  RuleConfig,
+  SessionMessage
+} from '../types/bot.js';
 import { logger } from '../utils/logger.js';
+import { AiClient } from '../services/ai-client.js';
+import { QWeatherClient } from '../services/qweather-client.js';
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -10,11 +31,41 @@ import {
   parseCookieValue,
   verifySessionToken
 } from './auth.js';
-import { loginSchema, personaRegistrySchema, ruleConfigSchema } from './validators.js';
+import { loginSchema, personaRegistrySchema, pluginConfigSchema, pluginTestSchema, ruleConfigSchema, sessionSettingsSchema } from './validators.js';
 
 interface JsonResponse {
   message: string;
   details?: unknown;
+}
+
+interface PluginTestResponse {
+  ok: boolean;
+  message: string;
+  elapsedMs: number;
+  details?: unknown;
+}
+
+type SessionStatus = 'available' | 'banned';
+
+interface SessionSummaryItem {
+  chatKey: string;
+  chatType: 'group' | 'private';
+  targetId: string;
+  displayName: string;
+  usesDefaultPersona: boolean;
+  personaId: string;
+  personaName: string;
+  status: SessionStatus;
+  messageCount: number;
+  handledCount: number;
+  lastReplyAt: number | null;
+  latestActivityAt: number | null;
+  lastMessage: SessionMessage | null;
+}
+
+interface ParsedChatKey {
+  chatType: 'group' | 'private';
+  targetId: string;
 }
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown, origin?: string): void {
@@ -62,20 +113,193 @@ function toError(message: string, details?: unknown): JsonResponse {
   return { message, details };
 }
 
-function sanitizeConfigSummary() {
+function sanitizeConfigSummary(plugins: PluginConfig[]) {
+  const qweatherPlugin = plugins.find((item) => item.kind === 'qweather');
+  const ds2apiPlugin = plugins.find((item) => item.kind === 'ds2api');
+
   return {
     napcatWsUrl: config.NAPCAT_WS_URL,
     aiBaseUrl: config.AI_BASE_URL,
     aiModel: config.AI_MODEL,
     aiTimeoutMs: config.AI_TIMEOUT_MS,
-    qweatherApiHost: config.QWEATHER_API_HOST,
-    qweatherEnabled: Boolean(config.QWEATHER_API_KEY),
+    pluginCount: plugins.length,
+    enabledPluginCount: plugins.filter((item) => item.enabled).length,
+    ds2apiEnabled: Boolean(ds2apiPlugin?.enabled),
+    qweatherApiHost: qweatherPlugin?.kind === 'qweather' ? qweatherPlugin.apiHost : config.QWEATHER_API_HOST,
+    qweatherEnabled: Boolean(qweatherPlugin?.kind === 'qweather' && qweatherPlugin.enabled && qweatherPlugin.apiKey),
     maxContextMessages: config.MAX_CONTEXT_MESSAGES,
     dataDir: config.DATA_DIR,
     logLevel: config.LOG_LEVEL,
     adminPort: config.ADMIN_PORT,
     adminSessionTtlSeconds: config.ADMIN_SESSION_TTL_SECONDS
   };
+}
+
+function isPluginKind(value: string): value is PluginKind {
+  return value === 'ds2api' || value === 'qweather';
+}
+
+async function testDs2ApiPlugin(plugin: Ds2ApiPluginConfig, input: string): Promise<PluginTestResponse> {
+  const startTime = Date.now();
+  const aiClient = new AiClient();
+  const prompt = input.trim() || '这是一条接口测试消息，请只回复“DS2API 测试成功”。';
+  const result = await aiClient.testChatCompletion(plugin, prompt);
+
+  return {
+    ok: true,
+    message: 'DS2API 接口调用成功',
+    elapsedMs: Date.now() - startTime,
+    details: {
+      model: plugin.model,
+      endpoint: plugin.baseUrl,
+      prompt,
+      replyPreview: result.reply.slice(0, 400),
+      raw: result.raw
+    }
+  };
+}
+
+async function testQWeatherPlugin(plugin: QWeatherPluginConfig, input: string): Promise<PluginTestResponse> {
+  const startTime = Date.now();
+  const client = new QWeatherClient(plugin);
+  const location = input.trim() || '北京';
+  const result = await client.probeLocation(location);
+
+  return {
+    ok: Boolean(result.selectedLocation),
+    message: result.selectedLocation ? '和风天气接口调用成功' : '接口可达，但未找到测试城市',
+    elapsedMs: Date.now() - startTime,
+    details: {
+      requestLocation: location,
+      selectedLocation: result.selectedLocation,
+      lookup: result.lookup,
+      weatherNow: result.weatherNow
+    }
+  };
+}
+
+async function runPluginTest(plugin: PluginConfig, input: string): Promise<PluginTestResponse> {
+  if (plugin.kind === 'ds2api') {
+    return testDs2ApiPlugin(plugin, input);
+  }
+
+  return testQWeatherPlugin(plugin, input);
+}
+
+function parseChatKey(chatKey: string): ParsedChatKey | null {
+  if (chatKey.startsWith('group:')) {
+    return {
+      chatType: 'group',
+      targetId: chatKey.slice('group:'.length)
+    };
+  }
+
+  if (chatKey.startsWith('private:')) {
+    return {
+      chatType: 'private',
+      targetId: chatKey.slice('private:'.length)
+    };
+  }
+
+  return null;
+}
+
+function getLatestActivityAt(session: ChatSession): number | null {
+  const lastMessage = session.messages[session.messages.length - 1];
+  const latestValue = Math.max(lastMessage?.time ?? 0, session.lastReplyAt ?? 0);
+  return latestValue > 0 ? latestValue : null;
+}
+
+function resolvePrivateDisplayName(session: ChatSession, fallbackId: string): string {
+  const latestUserMessage = [...session.messages]
+    .reverse()
+    .find((message) => message.role === 'user' && (message.senderNickname || message.userId));
+
+  return latestUserMessage?.senderNickname?.trim() || latestUserMessage?.userId || fallbackId;
+}
+
+function resolveDisplayName(parsedChatKey: ParsedChatKey, session: ChatSession): string {
+  if (parsedChatKey.chatType === 'group') {
+    return `群聊 ${parsedChatKey.targetId}`;
+  }
+
+  return resolvePrivateDisplayName(session, parsedChatKey.targetId);
+}
+
+function resolveSessionStatus(parsedChatKey: ParsedChatKey, rules: RuleConfig): SessionStatus {
+  if (parsedChatKey.chatType === 'group') {
+    return rules.groupBlacklist.includes(parsedChatKey.targetId) ? 'banned' : 'available';
+  }
+
+  return rules.privateBlacklist.includes(parsedChatKey.targetId) ? 'banned' : 'available';
+}
+
+function buildSessionSummary(
+  chatKey: string,
+  session: ChatSession,
+  personas: PersonaRegistry,
+  rules: RuleConfig
+): SessionSummaryItem | null {
+  const parsedChatKey = parseChatKey(chatKey);
+  if (!parsedChatKey) {
+    return null;
+  }
+
+  const usesDefaultPersona = !personas.bindings[chatKey];
+  const personaId = personas.bindings[chatKey] ?? personas.defaultPersonaId;
+  const persona = personas.personas.find((item) => item.id === personaId);
+  const lastMessage = session.messages[session.messages.length - 1] ?? null;
+
+  return {
+    chatKey,
+    chatType: parsedChatKey.chatType,
+    targetId: parsedChatKey.targetId,
+    displayName: resolveDisplayName(parsedChatKey, session),
+    usesDefaultPersona,
+    personaId,
+    personaName: persona?.name ?? personaId,
+    status: resolveSessionStatus(parsedChatKey, rules),
+    messageCount: session.messages.length,
+    handledCount: session.handledMessageIds.length,
+    lastReplyAt: session.lastReplyAt ?? null,
+    latestActivityAt: getLatestActivityAt(session),
+    lastMessage
+  };
+}
+
+function createEmptySession(): ChatSession {
+  return {
+    messages: [],
+    handledMessageIds: []
+  };
+}
+
+function updateBlacklist(list: string[], targetId: string, shouldInclude: boolean): string[] {
+  if (shouldInclude) {
+    if (list.includes(targetId)) {
+      return list;
+    }
+
+    return [...list, targetId];
+  }
+
+  return list.filter((item) => item !== targetId);
+}
+
+async function loadAdminSessionContext() {
+  const [sessionsData, rules, personas] = await Promise.all([loadSessionsData(), loadRules(), loadPersonas()]);
+  return { sessionsData, rules, personas };
+}
+
+function buildSessionList(
+  sessions: Record<string, ChatSession>,
+  personas: PersonaRegistry,
+  rules: RuleConfig
+): SessionSummaryItem[] {
+  return Object.entries(sessions)
+    .map(([chatKey, session]) => buildSessionSummary(chatKey, session, personas, rules))
+    .filter((item): item is SessionSummaryItem => Boolean(item))
+    .sort((a, b) => (b.latestActivityAt ?? 0) - (a.latestActivityAt ?? 0));
 }
 
 function allowCorsPreflight(request: IncomingMessage, response: ServerResponse): boolean {
@@ -141,8 +365,66 @@ export function createAdminServer(): Server {
       }
 
       if (pathname === '/admin/config-summary' && method === 'GET') {
-        writeJson(response, 200, sanitizeConfigSummary(), origin);
+        const plugins = await loadPluginConfigs();
+        writeJson(response, 200, sanitizeConfigSummary(plugins), origin);
         return;
+      }
+
+      if (pathname === '/admin/plugins' && method === 'GET') {
+        const plugins = await loadPluginConfigs();
+        writeJson(response, 200, plugins, origin);
+        return;
+      }
+
+      if (pathname.startsWith('/admin/plugins/')) {
+        const pluginSubPath = pathname.slice('/admin/plugins/'.length);
+        const [pluginId, action] = pluginSubPath.split('/');
+        if (!isPluginKind(pluginId)) {
+          writeJson(response, 404, toError('插件不存在'), origin);
+          return;
+        }
+
+        if (action === 'test' && method === 'POST') {
+          const body = await readJsonBody(request);
+          const parsed = pluginTestSchema.safeParse(body);
+          if (!parsed.success) {
+            writeJson(response, 400, toError('测试参数不合法', parsed.error.flatten()), origin);
+            return;
+          }
+
+          if (parsed.data.plugin.id !== pluginId || parsed.data.plugin.kind !== pluginId) {
+            writeJson(response, 400, toError('插件 ID 与请求路径不一致'), origin);
+            return;
+          }
+
+          const result = await runPluginTest(parsed.data.plugin, parsed.data.input);
+          writeJson(response, 200, result, origin);
+          return;
+        }
+
+        if (!action && method === 'GET') {
+          const plugin = await loadPluginConfig(pluginId);
+          writeJson(response, 200, plugin, origin);
+          return;
+        }
+
+        if (!action && method === 'PUT') {
+          const body = await readJsonBody(request);
+          const parsed = pluginConfigSchema.safeParse(body);
+          if (!parsed.success) {
+            writeJson(response, 400, toError('插件配置不合法', parsed.error.flatten()), origin);
+            return;
+          }
+
+          if (parsed.data.id !== pluginId || parsed.data.kind !== pluginId) {
+            writeJson(response, 400, toError('插件 ID 与请求路径不一致'), origin);
+            return;
+          }
+
+          await savePluginConfig(parsed.data);
+          writeJson(response, 200, { ok: true }, origin);
+          return;
+        }
       }
 
       if (pathname === '/admin/rules') {
@@ -188,31 +470,81 @@ export function createAdminServer(): Server {
       }
 
       if (pathname === '/admin/sessions' && method === 'GET') {
-        const sessionsData = await loadSessionsData();
+        const { sessionsData, rules, personas } = await loadAdminSessionContext();
         const chatKey = url.searchParams.get('chatKey');
         if (chatKey) {
-          const session = sessionsData.sessions[chatKey];
+          const session = sessionsData.sessions[chatKey] ?? null;
+          const summary = buildSessionSummary(chatKey, session ?? createEmptySession(), personas, rules);
+          if (!summary) {
+            writeJson(response, 400, toError('chatKey 不合法'), origin);
+            return;
+          }
+
           writeJson(response, 200, {
             chatKey,
+            summary,
             session: session ?? null
           }, origin);
           return;
         }
 
-        const entries = Object.entries(sessionsData.sessions).map(([key, value]) => ({
-          chatKey: key,
-          messageCount: value.messages.length,
-          handledCount: value.handledMessageIds.length,
-          lastReplyAt: value.lastReplyAt ?? null,
-          lastMessage: value.messages[value.messages.length - 1] ?? null
-        }));
-
-        entries.sort((a, b) => (b.lastReplyAt ?? 0) - (a.lastReplyAt ?? 0));
+        const entries = buildSessionList(sessionsData.sessions, personas, rules);
 
         writeJson(response, 200, {
           total: entries.length,
           sessions: entries
         }, origin);
+        return;
+      }
+
+      if (pathname === '/admin/sessions/settings' && method === 'PUT') {
+        const body = await readJsonBody(request);
+        const parsed = sessionSettingsSchema.safeParse(body);
+        if (!parsed.success) {
+          writeJson(response, 400, toError('会话设置参数不合法', parsed.error.flatten()), origin);
+          return;
+        }
+
+        const { sessionsData, rules, personas } = await loadAdminSessionContext();
+        const chatKey = parsed.data.chatKey;
+        const parsedChatKey = parseChatKey(chatKey);
+        if (!parsedChatKey) {
+          writeJson(response, 400, toError('chatKey 不合法'), origin);
+          return;
+        }
+
+        if (parsed.data.personaId && !personas.personas.some((item) => item.id === parsed.data.personaId)) {
+          writeJson(response, 400, toError('目标人格不存在'), origin);
+          return;
+        }
+
+        const nextBindings = { ...personas.bindings };
+        if (!parsed.data.personaId || parsed.data.personaId === personas.defaultPersonaId) {
+          delete nextBindings[chatKey];
+        } else {
+          nextBindings[chatKey] = parsed.data.personaId;
+        }
+
+        const isBanned = parsed.data.status === 'banned';
+        if (parsedChatKey.chatType === 'group') {
+          rules.groupBlacklist = updateBlacklist(rules.groupBlacklist, parsedChatKey.targetId, isBanned);
+        } else {
+          rules.privateBlacklist = updateBlacklist(rules.privateBlacklist, parsedChatKey.targetId, isBanned);
+          rules.blacklistUsers = [...rules.privateBlacklist];
+        }
+
+        personas.bindings = nextBindings;
+
+        await Promise.all([saveRules(rules), savePersonas(personas)]);
+
+        const session = sessionsData.sessions[chatKey] ?? createEmptySession();
+        const summary = buildSessionSummary(chatKey, session, personas, rules);
+        if (!summary) {
+          writeJson(response, 400, toError('chatKey 不合法'), origin);
+          return;
+        }
+
+        writeJson(response, 200, { ok: true, summary }, origin);
         return;
       }
 

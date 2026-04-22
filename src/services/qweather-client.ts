@@ -1,12 +1,8 @@
 import axios, { type AxiosInstance } from 'axios';
 import { config } from '../config/index.js';
+import type { QWeatherPluginConfig } from '../types/bot.js';
+import { logger } from '../utils/logger.js';
 
-/**
- * 和风天气客户端。
- *
- * 这个类故意只做“HTTP 协议适配”和“响应字段收敛”，不做聊天语义判断。
- * 目的是把第三方 API 的变动影响限制在这一层，reply/tool 层只消费稳定的业务字段。
- */
 export interface QWeatherLocation {
   id: string;
   name: string;
@@ -92,8 +88,38 @@ export interface AirNow {
   o3?: string;
 }
 
-interface AirNowResponse extends QWeatherResponseBase {
-  now?: AirNow;
+interface AirQualityIndex {
+  code?: string;
+  name?: string;
+  aqi?: number;
+  aqiDisplay?: string;
+  level?: string;
+  category?: string;
+  primaryPollutant?: {
+    code?: string;
+    name?: string;
+    fullName?: string;
+  } | null;
+}
+
+interface AirQualityPollutant {
+  code?: string;
+  concentration?: {
+    value?: number;
+    unit?: string;
+  };
+}
+
+interface AirNowResponse {
+  metadata?: {
+    tag?: string;
+  };
+  indexes?: AirQualityIndex[];
+  pollutants?: AirQualityPollutant[];
+  stations?: Array<{
+    id?: string;
+    name?: string;
+  }>;
 }
 
 export interface SunriseSunset {
@@ -116,29 +142,23 @@ function joinPath(baseUrl: string, path: string): string {
 
 export class QWeatherClient {
   private readonly http: AxiosInstance;
+  private readonly plugin: QWeatherPluginConfig;
 
-  constructor() {
+  constructor(plugin: QWeatherPluginConfig) {
+    this.plugin = plugin;
     this.http = axios.create({
-      // 这里复用 AI_TIMEOUT_MS，而不是再拆一个更细的 WEATHER_TIMEOUT_MS，
-      // 是因为当前项目的外部依赖很少，先保持配置面最小，避免为了一个工具过早引入过多环境变量。
       timeout: config.AI_TIMEOUT_MS,
       headers: {
-        'X-QW-Api-Key': config.QWEATHER_API_KEY
+        'X-QW-Api-Key': plugin.apiKey
       }
     });
   }
 
-  /**
-   * 统一封装 code 校验。
-   *
-   * 和风天气成功并不只看 HTTP 200，还要看业务层 `code` 是否等于 `200`。
-   * 这里集中处理，避免上层每个接口都重复写一遍判错逻辑。
-   */
   private async get<T extends QWeatherResponseBase>(path: string, params: Record<string, string>): Promise<T> {
-    const response = await this.http.get<T>(joinPath(config.QWEATHER_API_HOST, path), {
+    const response = await this.http.get<T>(joinPath(this.plugin.apiHost, path), {
       params: {
         ...params,
-        lang: config.QWEATHER_LANG
+        lang: this.plugin.lang
       }
     });
 
@@ -149,12 +169,6 @@ export class QWeatherClient {
     return response.data;
   }
 
-  /**
-   * 先做地点解析，再查天气明细。
-   *
-   * 聊天消息里的“北京”“浦东”“南山”都是自然语言地点，和风的大部分天气接口需要 `LocationID`，
-   * 所以 GeoAPI 是所有天气子能力的统一前置步骤。
-   */
   async lookupCity(location: string): Promise<QWeatherLocation[]> {
     const data = await this.get<CityLookupResponse>('/geo/v2/city/lookup', {
       location,
@@ -169,8 +183,37 @@ export class QWeatherClient {
     return data.now ?? null;
   }
 
-  // 预警、指数、空气质量、日出日落拆成独立方法，是为了让 Tool Router 按需组合，
-  // 后续如果想按用户意图裁剪调用范围，不需要改底层客户端。
+  async probeLocation(location: string): Promise<{
+    selectedLocation: QWeatherLocation | null;
+    lookup: CityLookupResponse;
+    weatherNow: WeatherNowResponse | null;
+  }> {
+    const lookup = await this.get<CityLookupResponse>('/geo/v2/city/lookup', {
+      location,
+      number: '5',
+      range: 'cn'
+    });
+
+    const selectedLocation = lookup.location?.[0] ?? null;
+    if (!selectedLocation) {
+      return {
+        selectedLocation: null,
+        lookup,
+        weatherNow: null
+      };
+    }
+
+    const weatherNow = await this.get<WeatherNowResponse>('/v7/weather/now', {
+      location: selectedLocation.id
+    });
+
+    return {
+      selectedLocation,
+      lookup,
+      weatherNow
+    };
+  }
+
   async getWarningNow(locationId: string): Promise<WeatherWarning[]> {
     const data = await this.get<WeatherWarningResponse>('/v7/warning/now', { location: locationId });
     return data.warning ?? [];
@@ -184,9 +227,45 @@ export class QWeatherClient {
     return data.daily ?? [];
   }
 
-  async getAirNow(locationId: string): Promise<AirNow | null> {
-    const data = await this.get<AirNowResponse>('/v7/air/now', { location: locationId });
-    return data.now ?? null;
+  async getAirNow(latitude: string, longitude: string): Promise<AirNow | null> {
+    if (!latitude || !longitude) {
+      return null;
+    }
+
+    return this.getAirNowByCoordinates(latitude, longitude);
+  }
+
+  async getAirNowByCoordinates(latitude: string, longitude: string): Promise<AirNow | null> {
+    const response = await this.http.get<AirNowResponse>(
+      joinPath(this.plugin.apiHost, `/airquality/v1/current/${latitude}/${longitude}`),
+      {
+        params: {
+          lang: this.plugin.lang
+        }
+      }
+    );
+
+    const primaryIndex = response.data.indexes?.[0];
+    const pollutants = new Map(
+      (response.data.pollutants ?? []).map((item) => [item.code ?? '', item.concentration?.value])
+    );
+
+    if (!primaryIndex) {
+      return null;
+    }
+
+    return {
+      aqi: primaryIndex.aqiDisplay ?? String(primaryIndex.aqi ?? ''),
+      level: primaryIndex.level,
+      category: primaryIndex.category,
+      primary: primaryIndex.primaryPollutant?.name ?? primaryIndex.primaryPollutant?.code,
+      pm2p5: pollutants.get('pm2p5')?.toString(),
+      pm10: pollutants.get('pm10')?.toString(),
+      no2: pollutants.get('no2')?.toString(),
+      so2: pollutants.get('so2')?.toString(),
+      co: pollutants.get('co')?.toString(),
+      o3: pollutants.get('o3')?.toString()
+    };
   }
 
   async getSunriseSunset(locationId: string, date: string): Promise<SunriseSunset | null> {

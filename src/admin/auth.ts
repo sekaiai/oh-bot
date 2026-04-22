@@ -4,7 +4,7 @@ import { config } from '../config/index.js';
 const COOKIE_NAME = 'admin_session';
 
 function getSessionSecret(): string {
-  return `${config.ADMIN_PASSWORD}:${config.AI_MODEL}:${config.NAPCAT_WS_URL}`;
+  return `${config.ADMIN_PASSWORD}:${config.NAPCAT_WS_URL}:${config.ADMIN_PORT}`;
 }
 
 function signPayload(payload: string): string {

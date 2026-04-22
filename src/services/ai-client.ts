@@ -4,25 +4,24 @@
  * 该模块只做三件事：
  * 1. 调用 OpenAI 兼容接口；
  * 2. 解析模型输出；
- * 3. 提供“评分”和“生成回复”两个明确能力。
- *
- * 决策规则本身不放在这里，避免 prompt 策略和业务状态判断混在一起。
+ * 3. 提供“评分”“主回复生成”“路由 AI 回复生成”三个明确能力。
  */
 import axios from 'axios';
 import { z } from 'zod';
-import { config } from '../config/index.js';
-import type { BotMessage, PersonaConfig, SessionMessage } from '../types/bot.js';
+import type {
+  AiEndpointConfig,
+  BotMessage,
+  Ds2ApiPluginConfig,
+  PersonaConfig,
+  SessionMessage
+} from '../types/bot.js';
 import { withRetry } from '../utils/retry.js';
 
-/**
- * 发送给 chat completions 的消息结构最小子集。
- */
 interface ChatCompletionMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
-// 用 schema 约束模型必须返回稳定 JSON，避免把“模型自然语言解释”直接喂给业务逻辑。
 const decisionSchema = z.object({
   score: z.number().min(0).max(1),
   isContextuallyRelevant: z.boolean()
@@ -32,19 +31,10 @@ const replySchema = z.object({
   reply: z.string().min(1)
 });
 
-/**
- * 兼容不同 `AI_BASE_URL` 是否带尾部 `/` 的情况，统一拼接 chat 接口路径。
- */
 function toChatEndpoint(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, '')}/chat/completions`;
 }
 
-/**
- * 从兼容 OpenAI 风格响应中提取文本内容。
- *
- * 有些网关返回 string，有些会返回分段数组；
- * 这里统一折叠成纯文本，减少下游对供应商差异的感知。
- */
 function extractTextContent(content: unknown): string {
   if (typeof content === 'string') {
     return content;
@@ -69,12 +59,6 @@ function extractTextContent(content: unknown): string {
   return '';
 }
 
-/**
- * 从模型输出中截取 JSON 对象。
- *
- * 实际运行中模型偶尔会在 JSON 前后带解释文本，
- * 这里做一个保守截取，尽量提升结构化解析成功率。
- */
 function extractJsonPayload(raw: string): string {
   const trimmed = raw.trim();
   const start = trimmed.indexOf('{');
@@ -87,12 +71,6 @@ function extractJsonPayload(raw: string): string {
   return trimmed.slice(start, end + 1);
 }
 
-/**
- * 将最近会话上下文格式化为 prompt 文本。
- *
- * 当前使用线性文本而不是复杂消息对象，是为了让不同模型兼容性更高，
- * 同时便于后续直接打印日志或复制调试。
- */
 function formatContextMessages(contextMessages: SessionMessage[]): string {
   if (contextMessages.length === 0) {
     return '无最近上下文';
@@ -106,38 +84,66 @@ function formatContextMessages(contextMessages: SessionMessage[]): string {
     .join('\n');
 }
 
-/**
- * 面向回复引擎的 AI 客户端。
- */
 export class AiClient {
-  private readonly endpoint = toChatEndpoint(config.AI_BASE_URL);
+  async testChatCompletion(
+    service: AiEndpointConfig,
+    prompt: string
+  ): Promise<{ reply: string; raw: unknown }> {
+    const response = await axios.post(
+      toChatEndpoint(service.baseUrl),
+      {
+        model: service.model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 120
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${service.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: service.timeoutMs
+      }
+    );
 
-  /**
-   * 执行一次 chat completion，并带统一重试。
-   *
-   * 这里只返回模型原始文本，不在这一层绑定业务 schema，
-   * 这样“评分”和“生成”可以共享同一套网络调用逻辑。
-   */
+    const content = response.data?.choices?.[0]?.message?.content;
+    const text = extractTextContent(content);
+    if (!text) {
+      throw new Error('Model returned empty content');
+    }
+
+    return {
+      reply: text,
+      raw: response.data
+    };
+  }
+
   private async createChatCompletion(
+    service: AiEndpointConfig,
     messages: ChatCompletionMessage[],
     options: { temperature: number; maxTokens: number }
   ): Promise<string> {
     return withRetry(
       async () => {
         const response = await axios.post(
-          this.endpoint,
+          toChatEndpoint(service.baseUrl),
           {
-            model: config.AI_MODEL,
+            model: service.model,
             messages,
             temperature: options.temperature,
             max_tokens: options.maxTokens
           },
           {
             headers: {
-              Authorization: `Bearer ${config.AI_API_KEY}`,
+              Authorization: `Bearer ${service.apiKey}`,
               'Content-Type': 'application/json'
             },
-            timeout: 30000
+            timeout: service.timeoutMs
           }
         );
 
@@ -157,21 +163,14 @@ export class AiClient {
     );
   }
 
-  /**
-   * 对群聊中“未显式触发”的消息做价值评分。
-   *
-   * 输入：当前消息、最近上下文、机器人名字候选。
-   * 输出：模型判断的 `score` 与 `isContextuallyRelevant`。
-   *
-   * 注意这里的 prompt 只负责“值不值得回复”，不负责写回复内容，
-   * 这样评分行为更稳定，也更容易调阈值。
-   */
   async scoreGroupReplyCandidate(
     message: BotMessage,
     contextMessages: SessionMessage[],
-    botNames: string[]
+    botNames: string[],
+    service: AiEndpointConfig
   ): Promise<{ score: number; isContextuallyRelevant: boolean }> {
     const raw = await this.createChatCompletion(
+      service,
       [
         {
           role: 'system',
@@ -206,25 +205,16 @@ export class AiClient {
     return parsed;
   }
 
-  /**
-   * 生成最终发送给用户的回复文本。
-   *
-   * 输入：当前消息、上下文、人设和触发原因。
-   * 输出：已经清洗过的最终回复内容。
-   *
-   * 这里仍然强制模型输出 JSON，而不是裸文本，
-   * 目的是让上层在未来扩展更多字段时保持协议稳定。
-   */
   async generateReply(
     message: BotMessage,
     contextMessages: SessionMessage[],
     persona: PersonaConfig,
     reason: string,
-    // `toolContext` 允许外部工具把事实数据注入生成阶段。
-    // 这样保留了原有的“模型负责措辞和人设”的优势，同时避免模型凭记忆瞎答实时信息。
+    service: AiEndpointConfig,
     toolContext?: string
   ): Promise<string> {
     const raw = await this.createChatCompletion(
+      service,
       [
         {
           role: 'system',
@@ -235,8 +225,6 @@ export class AiClient {
             '回复要求：简洁、自然、像真人聊天，不要机械模板，不要解释系统规则。',
             '私聊优先直接帮助用户；若需求不清，可以先用一句话澄清，再给可执行建议。',
             '群聊避免冗长，优先回答最关键的信息。',
-            // 这一段是工具接入后的关键约束：
-            // 模型的职责从“自己知道答案”变成“基于工具结果组织答案”，这样事实边界更清晰。
             '如果提供了工具查询结果，必须优先依据工具结果回答，不要编造实时信息。',
             '如果工具结果里有天气、空气质量、预警、日出日落或天气指数，请整合成自然回答。',
             '如果用户请求危险、违法、恶意内容，由你自行决定如何拒绝或转向更安全的回答。',
@@ -258,6 +246,47 @@ export class AiClient {
       {
         temperature: persona.temperature,
         maxTokens: persona.maxTokens
+      }
+    );
+
+    const parsed = replySchema.parse(JSON.parse(extractJsonPayload(raw)));
+    return parsed.reply.trim();
+  }
+
+  async generateRoutedReply(
+    message: BotMessage,
+    contextMessages: SessionMessage[],
+    persona: PersonaConfig,
+    route: Ds2ApiPluginConfig
+  ): Promise<string> {
+    const raw = await this.createChatCompletion(
+      route,
+      [
+        {
+          role: 'system',
+          content: [
+            persona.systemPrompt,
+            route.systemPrompt,
+            '你是被路由调用的专用 QQ 助手。',
+            '当消息命中你的路由条件时，直接给出最终回复。',
+            '回复要求：简洁、自然、准确，不要提及内部路由、模型切换或配置细节。',
+            '只输出 JSON，格式为 {"reply":"..."}。'
+          ].join('\n')
+        },
+        {
+          role: 'user',
+          content: [
+            `路由名称: ${route.name}`,
+            `消息类型: ${message.chatType}`,
+            `发送者: ${message.senderNickname || message.userId}`,
+            `当前消息: ${message.cleanText || '(空文本)'}`,
+            `最近上下文:\n${formatContextMessages(contextMessages)}`
+          ].join('\n')
+        }
+      ],
+      {
+        temperature: route.temperature,
+        maxTokens: route.maxTokens
       }
     );
 

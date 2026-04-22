@@ -2,16 +2,20 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import DashboardView from '../views/DashboardView.vue';
 import LoginView from '../views/LoginView.vue';
+import PluginsView from '../views/PluginsView.vue';
 import RulesView from '../views/RulesView.vue';
 import PersonasView from '../views/PersonasView.vue';
 import SessionsView from '../views/SessionsView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior: () => ({ top: 0 }),
   routes: [
     { path: '/login', name: 'login', component: LoginView },
     { path: '/', redirect: '/dashboard' },
     { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { requiresAuth: true } },
+    { path: '/runtime', redirect: '/plugins' },
+    { path: '/plugins', name: 'plugins', component: PluginsView, meta: { requiresAuth: true } },
     { path: '/rules', name: 'rules', component: RulesView, meta: { requiresAuth: true } },
     { path: '/personas', name: 'personas', component: PersonasView, meta: { requiresAuth: true } },
     { path: '/sessions', name: 'sessions', component: SessionsView, meta: { requiresAuth: true } }

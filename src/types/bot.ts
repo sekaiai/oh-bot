@@ -102,9 +102,8 @@ export type ReplyReason =
   | 'group_consecutive_reply_guard'
   | 'ai_disabled'
   | 'model_error'
-  // 这些 reason 专门标记“回复是由天气工具链驱动”的场景，
-  // 便于后续从日志或会话存储中区分 AI 自主回复和外部工具辅助回复。
   | 'tool_weather'
+  | 'tool_ds2api'
   | 'tool_missing_location'
   | 'tool_error';
 
@@ -200,3 +199,36 @@ export interface RuleConfig {
   commandPrefix: string;
   cooldownSeconds: number;
 }
+
+export interface AiEndpointConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  timeoutMs: number;
+}
+
+export type PluginKind = 'ds2api' | 'qweather';
+
+export interface PluginConfigBase {
+  id: string;
+  kind: PluginKind;
+  name: string;
+  enabled: boolean;
+}
+
+export interface Ds2ApiPluginConfig extends PluginConfigBase, AiEndpointConfig {
+  kind: 'ds2api';
+  triggerKeywords: string[];
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
+}
+
+export interface QWeatherPluginConfig extends PluginConfigBase {
+  kind: 'qweather';
+  apiHost: string;
+  apiKey: string;
+  lang: string;
+}
+
+export type PluginConfig = Ds2ApiPluginConfig | QWeatherPluginConfig;

@@ -1,0 +1,16 @@
+{
+  "baseUrl": "http://127.0.0.1:6011/v1",
+  "apiKey": "sk-27f619f57fa14190986d38ad4d112a81",
+  "model": "gpt-4o",
+  "timeoutMs": 30000,
+  "id": "ds2api",
+  "kind": "ds2api",
+  "name": "DS2API",
+  "enabled": true,
+  "triggerKeywords": [
+    "ds"
+  ],
+  "systemPrompt": "你是一个专注于深度推理和复杂问题处理的 QQ 助手。",
+  "temperature": 0.3,
+  "maxTokens": 1024
+}
