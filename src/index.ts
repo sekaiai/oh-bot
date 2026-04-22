@@ -113,7 +113,11 @@ async function bootstrap(): Promise<void> {
   process.on('SIGTERM', shutdown);
 }
 
-function closeAdminServer(server: Server): void {
+function closeAdminServer(server: Server | null): void {
+  if (!server) {
+    return;
+  }
+
   server.close((error) => {
     if (error) {
       logger.error({ err: error }, 'Admin server close failed');

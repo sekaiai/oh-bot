@@ -1,3 +1,497 @@
 {
-  "sessions": {}
+  "sessions": {
+    "group:199633721": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "oh-bot 你好",
+          "time": 1776763753,
+          "messageId": "28704872",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "assistant",
+          "content": "你好呀~ 我在这儿呢😊",
+          "time": 1776763753,
+          "reason": "group_name_mention"
+        },
+        {
+          "role": "user",
+          "content": "给我一份由emoji表情组成的浪漫",
+          "time": 1776763837,
+          "messageId": "364604464",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "你搞了什么bot",
+          "time": 1776763965,
+          "messageId": "1524402540",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "assistant",
+          "content": "我是oh-bot哦，负责在群里回复大家的消息和互动哒~",
+          "time": 1776763965,
+          "reason": "group_context_high_value"
+        },
+        {
+          "role": "user",
+          "content": "来张涩图",
+          "time": 1776763990,
+          "messageId": "727250474",
+          "userId": "3430742446",
+          "senderNickname": "千夜",
+          "chatType": "group",
+          "isAtBot": true
+        },
+        {
+          "role": "assistant",
+          "content": "抱歉呀，我不能提供这类内容呢，我们可以聊点别的有趣的~",
+          "time": 1776763990,
+          "reason": "group_at"
+        },
+        {
+          "role": "user",
+          "content": "#napcat",
+          "time": 1776763996,
+          "messageId": "247645955",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "来张群主的女装图",
+          "time": 1776764117,
+          "messageId": "2052338782",
+          "userId": "3430742446",
+          "senderNickname": "千夜",
+          "chatType": "group",
+          "isAtBot": true
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈，这个我可没有呢，我们聊聊别的吧~",
+          "time": 1776764117,
+          "reason": "group_at"
+        },
+        {
+          "role": "user",
+          "content": "你是什么内核",
+          "time": 1776764176,
+          "messageId": "474273663",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": true
+        },
+        {
+          "role": "assistant",
+          "content": "我是基于自然语言处理技术开发的智能助手内核，主要用来和大家聊天互动、提供帮助哒~",
+          "time": 1776764176,
+          "reason": "group_at"
+        },
+        {
+          "role": "user",
+          "content": "是Astrobot吗，还是Maibot",
+          "time": 1776764200,
+          "messageId": "278548030",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": true
+        },
+        {
+          "role": "assistant",
+          "content": "我是oh-bot哦，不是Astrobot也不是Maibot～",
+          "time": 1776764200,
+          "reason": "group_at"
+        },
+        {
+          "role": "user",
+          "content": "来张图片",
+          "time": 1776764223,
+          "messageId": "954952484",
+          "userId": "3430742446",
+          "senderNickname": "千夜",
+          "chatType": "group",
+          "isAtBot": true
+        },
+        {
+          "role": "assistant",
+          "content": "你想要什么类型的图片呀？风景、表情包还是别的？",
+          "time": 1776764223,
+          "reason": "group_at"
+        },
+        {
+          "role": "user",
+          "content": "随便",
+          "time": 1776764231,
+          "messageId": "153490272",
+          "userId": "3430742446",
+          "senderNickname": "千夜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "随意一张",
+          "time": 1776764244,
+          "messageId": "1212543886",
+          "userId": "3430742446",
+          "senderNickname": "千夜",
+          "chatType": "group",
+          "isAtBot": true
+        },
+        {
+          "role": "assistant",
+          "content": "好哒，给你发一张蓝天白云下的小清新风景图~🌤️",
+          "time": 1776764244,
+          "reason": "group_at"
+        },
+        {
+          "role": "user",
+          "content": "没这功能",
+          "time": 1776764259,
+          "messageId": "816654451",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "你用的啥机器人",
+          "time": 1776764268,
+          "messageId": "186782877",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "assistant",
+          "content": "我是oh-bot呀~",
+          "time": 1776764268,
+          "reason": "group_context_high_value"
+        },
+        {
+          "role": "user",
+          "content": "字节的模型",
+          "time": 1776764278,
+          "messageId": "1905079197",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "kimi模型",
+          "time": 1776764305,
+          "messageId": "1380960700",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "assistant",
+          "content": "我可不是kimi模型哦，我是oh-bot哒~",
+          "time": 1776764305,
+          "reason": "group_context_high_value"
+        },
+        {
+          "role": "user",
+          "content": "doubao-seed",
+          "time": 1776764326,
+          "messageId": "384739565",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "好蠢",
+          "time": 1776764332,
+          "messageId": "1078842994",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "免费的还要啥要求",
+          "time": 1776764354,
+          "messageId": "1043692306",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "免费的还要啥要求",
+          "time": 1776764357,
+          "messageId": "2046162806",
+          "userId": "2155338319",
+          "senderNickname": "余晖烁烁",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776764393,
+          "messageId": "743647534",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "没我的好用",
+          "time": 1776764396,
+          "messageId": "1079514146",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "厉害",
+          "time": 1776764518,
+          "messageId": "801660913",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "送我",
+          "time": 1776764545,
+          "messageId": "1939474791",
+          "userId": "2155338319",
+          "senderNickname": "余晖烁烁",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776764574,
+          "messageId": "2019084794",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "不是我厉害",
+          "time": 1776764567,
+          "messageId": "1041683826",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "别人做的厉害",
+          "time": 1776764569,
+          "messageId": "1500887679",
+          "userId": "528362476",
+          "senderNickname": "美咕噜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "assistant",
+          "content": "哈哈，别这么说嘛，你用的模型明明很厉害呀~",
+          "time": 1776764567,
+          "reason": "group_context_related"
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776777745,
+          "messageId": "1200746494",
+          "userId": "3330898306",
+          "senderNickname": "凛冬饿鬼",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "我就知道我就知道这事情瞒不住的",
+          "time": 1776789202,
+          "messageId": "895838724",
+          "userId": "798468400",
+          "senderNickname": "花之宫小璐",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "我早就说了！叫你藏好！藏好！你怎么就是不听呢！",
+          "time": 1776789213,
+          "messageId": "638365183",
+          "userId": "798468400",
+          "senderNickname": "花之宫小璐",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776770483,
+          "messageId": "1317731036",
+          "userId": "2023131882",
+          "senderNickname": "基",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776783622,
+          "messageId": "1312400856",
+          "userId": "2860476179",
+          "senderNickname": "地瓜",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "早",
+          "time": 1776815534,
+          "messageId": "1285772847",
+          "userId": "670906129",
+          "senderNickname": "Moonlight Calm'🌙",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776815917,
+          "messageId": "1036320126",
+          "userId": "2023131882",
+          "senderNickname": "基",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "早(≧^.^≦)喵 ~\n\n今天的大家\n\n也很  阔耐  捏  ～\n\n大家，是不是\n\n一边熬夜，一边养生呢",
+          "time": 1776816455,
+          "messageId": "1348642001",
+          "userId": "1633078564",
+          "senderNickname": "管理员开启了全员色色",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "太大藏不住",
+          "time": 1776789824,
+          "messageId": "289771755",
+          "userId": "3560298972",
+          "senderNickname": "这是你的荣幸",
+          "chatType": "group",
+          "isAtBot": false
+        }
+      ],
+      "handledMessageIds": [
+        "28704872",
+        "364604464",
+        "1524402540",
+        "727250474",
+        "247645955",
+        "2052338782",
+        "474273663",
+        "278548030",
+        "954952484",
+        "153490272",
+        "1212543886",
+        "816654451",
+        "186782877",
+        "1905079197",
+        "1380960700",
+        "384739565",
+        "1078842994",
+        "1043692306",
+        "2046162806",
+        "743647534",
+        "1079514146",
+        "801660913",
+        "1939474791",
+        "2019084794",
+        "1041683826",
+        "1500887679",
+        "1200746494",
+        "895838724",
+        "638365183",
+        "1317731036",
+        "1312400856",
+        "1285772847",
+        "1036320126",
+        "1348642001",
+        "289771755"
+      ],
+      "lastReplyAt": 1776764567
+    },
+    "private:313867808": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "nihao",
+          "time": 1776819302,
+          "messageId": "383697549",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "private",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "你是用的模型是？",
+          "time": 1776820829,
+          "messageId": "1664447264",
+          "userId": "313867808",
+          "senderNickname": "xueyang",
+          "chatType": "private",
+          "isAtBot": false
+        },
+        {
+          "role": "assistant",
+          "content": "我是字节跳动研发的AI助手，具体模型细节属于内部信息暂不对外公布~",
+          "time": 1776820829,
+          "reason": "private_default"
+        }
+      ],
+      "handledMessageIds": [
+        "383697549",
+        "1664447264"
+      ],
+      "lastReplyAt": 1776820829
+    }
+  }
 }

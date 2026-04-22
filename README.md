@@ -192,6 +192,8 @@ await sender.sendMessage({
 
 项目新增了一个独立管理端（不依赖 UI 组件库），用于：
 
+未配置 `ADMIN_PASSWORD` 时，机器人主服务仍可启动，但管理端 API 不会监听端口。
+
 - 单密码登录（`ADMIN_PASSWORD`）
 - 运行概览查看
 - `rules.json` 可视化编辑

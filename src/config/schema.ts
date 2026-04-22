@@ -35,8 +35,9 @@ export const envSchema = z.object({
   QWEATHER_API_KEY: z.string().optional().default(''),
   QWEATHER_LANG: z.string().min(1).default('zh'),
 
-  // 管理端登录密码，要求必须显式配置，避免默认空密码导致后台裸奔。
-  ADMIN_PASSWORD: z.string().min(1),
+  // 管理端登录密码。
+  // 未配置时管理端保持关闭，避免把“可选后台”变成主服务的启动硬依赖。
+  ADMIN_PASSWORD: z.string().optional().default(''),
   ADMIN_PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   ADMIN_WEB_ORIGIN: z.string().url().default('http://127.0.0.1:5173'),
   ADMIN_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(43200),

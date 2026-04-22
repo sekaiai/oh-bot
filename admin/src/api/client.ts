@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_ADMIN_API_BASE_URL as string | undefined) ?? 'http://127.0.0.1:3100';
+const API_BASE_URL = (import.meta.env.VITE_ADMIN_API_BASE_URL as string | undefined) ?? 'http://127.0.0.1:10031';
 
 interface ApiErrorPayload {
   message?: string;

@@ -226,7 +226,12 @@ export function createAdminServer(): Server {
   return server;
 }
 
-export async function startAdminServer(): Promise<Server> {
+export async function startAdminServer(): Promise<Server | null> {
+  if (!config.ADMIN_PASSWORD) {
+    logger.warn('Admin server disabled because ADMIN_PASSWORD is not configured');
+    return null;
+  }
+
   const server = createAdminServer();
 
   await new Promise<void>((resolve, reject) => {
