@@ -14,6 +14,7 @@ import { NapcatSender } from './adapters/napcat/sender.js';
 import { NapcatWsClient } from './adapters/napcat/ws-client.js';
 import { startAdminServer } from './admin/server.js';
 import { ReplyEngine } from './services/reply-engine.js';
+import { TaskScheduler } from './services/task-center.js';
 import type { BotMessage, OutboundMessageContent, OutboundMessageSegment } from './types/bot.js';
 import { logger } from './utils/logger.js';
 
@@ -67,10 +68,6 @@ function withGroupMention(message: BotMessage, outboundMessage: OutboundMessageC
 async function bootstrap(): Promise<void> {
   logger.info('QQ bot service starting');
   const replyEngine = new ReplyEngine();
-  let sender: NapcatSender | null = null;
-
-  const adminServer = await startAdminServer();
-
   const wsClient = new NapcatWsClient({
     url: config.NAPCAT_WS_URL,
     accessToken: config.NAPCAT_ACCESS_TOKEN,
@@ -102,10 +99,6 @@ async function bootstrap(): Promise<void> {
         'Received bot message'
       );
 
-      if (!sender) {
-        sender = new NapcatSender(wsClient);
-      }
-
       const decision = await replyEngine.decideAndGenerate(message);
 
       logger.info(
@@ -131,9 +124,13 @@ async function bootstrap(): Promise<void> {
       });
     }
   });
+  const sender = new NapcatSender(wsClient);
+  const taskScheduler = new TaskScheduler(sender);
+  const adminServer = await startAdminServer(sender);
 
   // 连接建立后由客户端自身维护重连；入口层只负责触发首次启动。
   wsClient.connect();
+  taskScheduler.start();
 
   /**
    * 统一处理退出信号。
@@ -143,6 +140,7 @@ async function bootstrap(): Promise<void> {
    */
   const shutdown = (): void => {
     logger.info('QQ bot service shutting down');
+    taskScheduler.stop();
     wsClient.shutdown();
     closeAdminServer(adminServer);
     process.exit(0);

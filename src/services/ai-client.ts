@@ -47,6 +47,10 @@ const pluginRoutingSchema = z.object({
   ds2apiRouteId: z.string().nullable().default(null)
 });
 
+const GROUP_REPLY_TEMPERATURE_CAP = 0.35;
+const PRIVATE_REPLY_TEMPERATURE_CAP = 0.55;
+const ROUTED_REPLY_TEMPERATURE_CAP = 0.4;
+
 function toChatEndpoint(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, '')}/chat/completions`;
 }
@@ -107,6 +111,19 @@ function createDs2ApiService(plugin: Ds2ApiPluginConfig, route: Ds2ApiRouteConfi
     model: route.model,
     timeoutMs: plugin.timeoutMs
   };
+}
+
+function clampTemperature(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function getReplyTemperature(chatType: BotMessage['chatType'], value: number): number {
+  const cap = chatType === 'group' ? GROUP_REPLY_TEMPERATURE_CAP : PRIVATE_REPLY_TEMPERATURE_CAP;
+  return clampTemperature(Math.min(value, cap));
+}
+
+function getRoutedReplyTemperature(value: number): number {
+  return clampTemperature(Math.min(value, ROUTED_REPLY_TEMPERATURE_CAP));
 }
 
 export interface PluginRoutingCandidateSummary {
@@ -229,9 +246,11 @@ export class AiClient {
             '你是 QQ 群聊机器人“是否应该回复”的决策器。',
             '你的任务不是生成回答，而是只输出 JSON。',
             '你必须根据当前消息和最近上下文，给出 score(0~1) 和 isContextuallyRelevant(boolean)。',
-            'score 高价值信号：明确问题、求助、任务请求、决策请求、追问、纠错、总结、翻译、分析、执行建议、明显在寻求机器人能力。',
-            'score 低价值信号：纯表情、单字灌水、哈哈哈、6、？、。 、在吗、重复刷屏、无上下文噪声。',
-            '只有当消息与上下文强相关，或明显是在寻求机器人能力时，isContextuallyRelevant 才能为 true。',
+            '判断标准以“机器人回复后是否能提供明显新增信息、结论、建议或执行帮助”为核心。',
+            'score 高价值信号：明确问题、求助、任务请求、决策请求、纠错、追问、总结、翻译、分析、排查、要求给方案、明显在寻求机器人能力。',
+            'score 中低价值信号：寒暄、接梗、附和、情绪表达、纯表情、单字灌水、哈哈哈、6、？、。 、在吗、重复刷屏、无上下文噪声。',
+            '如果机器人就算回复，也大概率只是附和、接话、复述、玩梗、寒暄，没有信息增量，则 score 必须压低。',
+            '只有当消息与上下文强相关，且机器人回复能带来明确信息增量，或明显是在寻求机器人能力时，isContextuallyRelevant 才能为 true。',
             '只输出 JSON，格式为 {"score":0.0,"isContextuallyRelevant":false}。'
           ].join('\n')
         },
@@ -273,9 +292,11 @@ export class AiClient {
             persona.systemPrompt,
             '你是 QQ 机器人消息回复引擎。',
             '你必须直接生成适合发送给用户的自然中文回复。',
-            '回复要求：简洁、自然、像真人聊天，不要机械模板，不要解释系统规则。',
+            '回复要求：简洁、自然、克制，优先提供结论、事实、建议或下一步动作。',
+            '不要寒暄，不要卖萌，不要玩梗，不要附和式复述，不要用“哈哈”“确实”“懂你”“有点东西”这类低信息填充。',
+            '如果没有足够信息，就只做必要澄清；不要为了显得像人在聊天而硬接话。',
             '私聊优先直接帮助用户；若需求不清，可以先用一句话澄清，再给可执行建议。',
-            '群聊避免冗长，优先回答最关键的信息。',
+            '群聊避免冗长，默认控制在 1 到 2 句，优先回答最关键的信息。',
             '如果提供了工具查询结果，必须优先依据工具结果回答，不要编造实时信息。',
             '如果工具结果里有天气、空气质量、预警、日出日落或天气指数，请整合成自然回答。',
             '如果用户请求危险、违法、恶意内容，由你自行决定如何拒绝或转向更安全的回答。',
@@ -295,7 +316,7 @@ export class AiClient {
         }
       ],
       {
-        temperature: persona.temperature,
+        temperature: getReplyTemperature(message.chatType, persona.temperature),
         maxTokens: persona.maxTokens
       }
     );
@@ -324,7 +345,8 @@ export class AiClient {
             route.systemPrompt,
             '你是被路由调用的专用 QQ 助手。',
             '当消息命中你的路由条件时，直接给出最终回复。',
-            '回复要求：简洁、自然、准确，不要提及内部路由、模型切换或配置细节。',
+            '回复要求：简洁、自然、准确，优先给结论和可执行信息。',
+            '不要寒暄，不要接梗，不要附和式复述，不要提及内部路由、模型切换或配置细节。',
             '只输出 JSON，格式为 {"reply":"..."}。'
           ].join('\n')
         },
@@ -344,13 +366,46 @@ export class AiClient {
         }
       ],
       {
-        temperature: route.temperature,
+        temperature: getRoutedReplyTemperature(route.temperature),
         maxTokens: route.maxTokens
       }
     );
 
     const parsed = replySchema.parse(JSON.parse(extractJsonPayload(raw)));
     return parsed.reply.trim();
+  }
+
+  async generateScheduledTaskText(
+    plugin: Ds2ApiPluginConfig,
+    route: Ds2ApiRouteConfig,
+    prompt: string
+  ): Promise<string> {
+    const raw = await this.createChatCompletion(
+      createDs2ApiService(plugin, route),
+      [
+        {
+          role: 'system',
+          content: [
+            route.systemPrompt,
+            '你正在为一个定时任务生成将要直接发送给 QQ 群或私聊的内容。',
+            '输出必须自然、明确、可直接发送。',
+            '不要解释内部配置，不要提及模型、路由或系统提示词。',
+            '如果用户给的是固定播报任务，就直接生成最终文案。',
+            '只输出纯文本。'
+          ].join('\n')
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      {
+        temperature: getRoutedReplyTemperature(route.temperature),
+        maxTokens: route.maxTokens
+      }
+    );
+
+    return raw.trim();
   }
 
   async classifyPluginRoute(

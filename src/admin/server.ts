@@ -4,10 +4,12 @@ import {
   loadPluginConfig,
   loadPluginConfigs,
   loadRules,
+  loadScheduledTasks,
   loadSessionsData,
   savePersonas,
   savePluginConfig,
   saveRules,
+  saveScheduledTasks,
 } from '../services/data-repository.js';
 import { config } from '../config/index.js';
 import type {
@@ -25,6 +27,8 @@ import { logger } from '../utils/logger.js';
 import { AiClient } from '../services/ai-client.js';
 import { QingmengClient } from '../services/qingmeng-client.js';
 import { QWeatherClient } from '../services/qweather-client.js';
+import type { NapcatSender } from '../adapters/napcat/sender.js';
+import { executeScheduledTask, persistTaskExecution } from '../services/task-center.js';
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -33,7 +37,15 @@ import {
   parseCookieValue,
   verifySessionToken
 } from './auth.js';
-import { loginSchema, personaRegistrySchema, pluginConfigSchema, pluginTestSchema, ruleConfigSchema, sessionSettingsSchema } from './validators.js';
+import {
+  loginSchema,
+  personaRegistrySchema,
+  pluginConfigSchema,
+  pluginTestSchema,
+  ruleConfigSchema,
+  scheduledTasksSchema,
+  sessionSettingsSchema
+} from './validators.js';
 
 interface JsonResponse {
   message: string;
@@ -68,6 +80,14 @@ interface SessionSummaryItem {
 interface ParsedChatKey {
   chatType: 'group' | 'private';
   targetId: string;
+}
+
+interface TaskTargetOption {
+  chatKey: string;
+  chatType: 'group' | 'private';
+  targetId: string;
+  displayName: string;
+  status: SessionStatus;
 }
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown, origin?: string): void {
@@ -277,9 +297,17 @@ function resolvePrivateDisplayName(session: ChatSession, fallbackId: string): st
   return latestUserMessage?.senderNickname?.trim() || latestUserMessage?.userId || fallbackId;
 }
 
+function resolveGroupDisplayName(session: ChatSession, fallbackId: string): string {
+  const latestGroupMessage = [...session.messages]
+    .reverse()
+    .find((message) => message.chatType === 'group' && message.groupName?.trim());
+
+  return latestGroupMessage?.groupName?.trim() || `群聊 ${fallbackId}`;
+}
+
 function resolveDisplayName(parsedChatKey: ParsedChatKey, session: ChatSession): string {
   if (parsedChatKey.chatType === 'group') {
-    return `群聊 ${parsedChatKey.targetId}`;
+    return resolveGroupDisplayName(session, parsedChatKey.targetId);
   }
 
   return resolvePrivateDisplayName(session, parsedChatKey.targetId);
@@ -361,6 +389,20 @@ function buildSessionList(
     .sort((a, b) => (b.latestActivityAt ?? 0) - (a.latestActivityAt ?? 0));
 }
 
+function buildTaskTargetOptions(
+  sessions: Record<string, ChatSession>,
+  personas: PersonaRegistry,
+  rules: RuleConfig
+): TaskTargetOption[] {
+  return buildSessionList(sessions, personas, rules).map((item) => ({
+    chatKey: item.chatKey,
+    chatType: item.chatType,
+    targetId: item.targetId,
+    displayName: item.displayName,
+    status: item.status
+  }));
+}
+
 function allowCorsPreflight(request: IncomingMessage, response: ServerResponse): boolean {
   const origin = getRequestOrigin(request);
   if (request.method !== 'OPTIONS') {
@@ -380,7 +422,7 @@ function allowCorsPreflight(request: IncomingMessage, response: ServerResponse):
   return true;
 }
 
-export function createAdminServer(): Server {
+export function createAdminServer(sender: NapcatSender | null): Server {
   const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET';
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
@@ -426,6 +468,57 @@ export function createAdminServer(): Server {
       if (pathname === '/admin/config-summary' && method === 'GET') {
         const plugins = await loadPluginConfigs();
         writeJson(response, 200, sanitizeConfigSummary(plugins), origin);
+        return;
+      }
+
+      if (pathname === '/admin/task-targets' && method === 'GET') {
+        const { sessionsData, rules, personas } = await loadAdminSessionContext();
+        writeJson(response, 200, buildTaskTargetOptions(sessionsData.sessions, personas, rules), origin);
+        return;
+      }
+
+      if (pathname === '/admin/tasks') {
+        if (method === 'GET') {
+          const tasks = await loadScheduledTasks();
+          writeJson(response, 200, { tasks }, origin);
+          return;
+        }
+
+        if (method === 'PUT') {
+          const body = await readJsonBody(request);
+          const parsed = scheduledTasksSchema.safeParse(body);
+          if (!parsed.success) {
+            writeJson(response, 400, toError('任务配置不合法', parsed.error.flatten()), origin);
+            return;
+          }
+
+          await saveScheduledTasks(parsed.data.tasks);
+          writeJson(response, 200, { ok: true }, origin);
+          return;
+        }
+      }
+
+      if (pathname.startsWith('/admin/tasks/') && pathname.endsWith('/run') && method === 'POST') {
+        if (!sender) {
+          writeJson(response, 503, toError('当前发送通道不可用，无法执行任务'), origin);
+          return;
+        }
+
+        const taskId = pathname.slice('/admin/tasks/'.length, -'/run'.length);
+        const tasks = await loadScheduledTasks();
+        const task = tasks.find((item) => item.id === taskId);
+        if (!task) {
+          writeJson(response, 404, toError('任务不存在'), origin);
+          return;
+        }
+
+        const log = await executeScheduledTask(task, sender);
+        const nextLog = {
+          ...log,
+          scheduledFor: `manual:${new Date().toISOString()}`
+        };
+        await persistTaskExecution(task.id, nextLog, nextLog.scheduledFor);
+        writeJson(response, 200, nextLog, origin);
         return;
       }
 
@@ -623,13 +716,13 @@ export function createAdminServer(): Server {
   return server;
 }
 
-export async function startAdminServer(): Promise<Server | null> {
+export async function startAdminServer(sender: NapcatSender | null): Promise<Server | null> {
   if (!config.ADMIN_PASSWORD) {
     logger.warn('Admin server disabled because ADMIN_PASSWORD is not configured');
     return null;
   }
 
-  const server = createAdminServer();
+  const server = createAdminServer(sender);
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);

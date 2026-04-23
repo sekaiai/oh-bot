@@ -45,6 +45,7 @@ logger.info(
     adminPort: config.ADMIN_PORT,
     adminWebOrigin: config.ADMIN_WEB_ORIGIN,
     adminSessionTtlSeconds: config.ADMIN_SESSION_TTL_SECONDS,
+    taskCenterPollMs: config.TASK_CENTER_POLL_MS,
     maxContextMessages: config.MAX_CONTEXT_MESSAGES,
     dataDir: config.DATA_DIR,
     logLevel: config.LOG_LEVEL

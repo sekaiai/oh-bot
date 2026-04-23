@@ -1,0 +1,29 @@
+[
+  {
+    "id": "task-6pdi3z",
+    "name": "新任务",
+    "enabled": true,
+    "cronExpression": "0 8 * * *",
+    "timezone": "Asia/Shanghai",
+    "jitterSeconds": 900,
+    "messageTemplate": "",
+    "pluginId": "ds2api",
+    "pluginPayload": {
+      "routeId": "chat",
+      "prompt": "写一条适合早上发送到群里的简短晨间问候"
+    },
+    "targets": [
+      {
+        "chatType": "group",
+        "targetId": "199633721",
+        "displayName": "第五舰队"
+      },
+      {
+        "chatType": "group",
+        "targetId": "603458841",
+        "displayName": "MBTI二次元大图书馆"
+      }
+    ],
+    "logs": []
+  }
+]

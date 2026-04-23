@@ -43,6 +43,7 @@ export const envSchema = z.object({
   ADMIN_PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   ADMIN_WEB_ORIGIN: z.string().url().default('http://127.0.0.1:5173'),
   ADMIN_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(43200),
+  TASK_CENTER_POLL_MS: z.coerce.number().int().positive().default(15000),
 
   MAX_CONTEXT_MESSAGES: z.coerce.number().int().positive().default(20),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),

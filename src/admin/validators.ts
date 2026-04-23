@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CronExpressionParser } from 'cron-parser';
 
 export const ruleConfigSchema = z.object({
   admins: z.array(z.string()),
@@ -118,6 +119,8 @@ const qingmengEndpointSchema = z.object({
   listPath: z.string().optional(),
   itemTitlePath: z.string().optional(),
   itemUrlPath: z.string().optional(),
+  displayMode: z.enum(['none', 'fixed']).optional(),
+  displayText: z.string().optional(),
   captionTemplate: z.string().optional(),
   sampleInput: z.string(),
   sampleImageUrl: z.string().url().optional().or(z.literal(''))
@@ -147,4 +150,73 @@ export const sessionSettingsSchema = z.object({
   chatKey: z.string().regex(/^(group|private):[^:\s]+$/, 'chatKey 格式不合法'),
   personaId: z.string().min(1).nullable(),
   status: z.enum(['available', 'banned'])
+});
+
+const taskTargetSchema = z.object({
+  chatType: z.enum(['group', 'private']),
+  targetId: z.string().min(1),
+  displayName: z.string().min(1)
+});
+
+const cronExpressionSchema = z.string().min(1).superRefine((value, ctx) => {
+  try {
+    CronExpressionParser.parse(value, {
+      currentDate: new Date(),
+      tz: 'Asia/Shanghai'
+    });
+  } catch (error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: error instanceof Error ? error.message : 'Cron 表达式不合法'
+    });
+  }
+});
+
+const taskExecutionTargetResultSchema = z.object({
+  chatType: z.enum(['group', 'private']),
+  targetId: z.string().min(1),
+  displayName: z.string().min(1),
+  ok: z.boolean(),
+  error: z.string().optional()
+});
+
+const taskExecutionLogSchema = z.object({
+  id: z.string().min(1),
+  scheduledFor: z.string().min(1),
+  executedAt: z.number().int().positive(),
+  status: z.enum(['success', 'partial', 'failed']),
+  message: z.string().min(1),
+  results: z.array(taskExecutionTargetResultSchema)
+});
+
+export const scheduledTaskSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  cronExpression: cronExpressionSchema,
+  timezone: z.string().min(1),
+  jitterSeconds: z.number().int().min(0).max(86400),
+  messageTemplate: z.string(),
+  pluginId: z.enum(['', 'ds2api', 'qweather', 'qingmeng']).optional(),
+  pluginPayload: z.record(z.string(), z.unknown()).optional().default({}),
+  targets: z.array(taskTargetSchema).min(1),
+  lastRunAt: z.number().int().positive().optional(),
+  lastRunScheduledFor: z.string().optional(),
+  lastRunStatus: z.enum(['success', 'partial', 'failed']).optional(),
+  lastRunMessage: z.string().optional(),
+  logs: z.array(taskExecutionLogSchema).max(20).default([])
+}).superRefine((value, ctx) => {
+  const hasPlugin = Boolean(value.pluginId);
+  const hasText = value.messageTemplate.trim().length > 0;
+
+  if (!hasPlugin && !hasText) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '未选择插件时必须填写发送文案'
+    });
+  }
+});
+
+export const scheduledTasksSchema = z.object({
+  tasks: z.array(scheduledTaskSchema)
 });
