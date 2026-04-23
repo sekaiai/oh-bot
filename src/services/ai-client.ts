@@ -19,9 +19,23 @@ import type {
 } from '../types/bot.js';
 import { withRetry } from '../utils/retry.js';
 
+interface ChatCompletionTextPart {
+  type: 'text';
+  text: string;
+}
+
+interface ChatCompletionImagePart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+type ChatCompletionContentPart = ChatCompletionTextPart | ChatCompletionImagePart;
+
 interface ChatCompletionMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ChatCompletionContentPart[];
 }
 
 const decisionSchema = z.object({
@@ -142,6 +156,53 @@ function getReplyTemperature(chatType: BotMessage['chatType'], value: number): n
 
 function getRoutedReplyTemperature(value: number): number {
   return clampTemperature(Math.min(value, ROUTED_REPLY_TEMPERATURE_CAP));
+}
+
+function supportsVisionInput(model: string): boolean {
+  return model.toLowerCase().includes('vision');
+}
+
+function buildRoutedReplyUserContent(
+  message: BotMessage,
+  contextMessages: SessionMessage[],
+  route: Ds2ApiRouteConfig,
+  options?: {
+    fallbackContext?: string;
+  },
+  contextSummary?: string
+): string | ChatCompletionContentPart[] {
+  const visionEnabled = supportsVisionInput(route.model) && message.imageUrls.length > 0;
+  const textSections = [
+    `路由名称: ${route.name}`,
+    `路由模型: ${route.model}`,
+    `消息类型: ${message.chatType}`,
+    `发送者: ${message.senderNickname || message.userId}`,
+    `当前消息: ${message.cleanText || '(空文本)'}`,
+    `消息图片数量: ${message.imageUrls.length}`,
+    visionEnabled ? '图片输入: 已作为多模态 image_url 附加在本条消息中，请直接结合图片内容回答。' : (
+      message.imageUrls.length > 0 ? `消息图片链接:\n${message.imageUrls.join('\n')}` : '消息图片链接: 无'
+    ),
+    `上下文:\n${formatPromptContext(contextMessages, contextSummary)}`,
+    options?.fallbackContext ? `回退上下文:\n${options.fallbackContext}` : '回退上下文: 无'
+  ];
+  const text = textSections.join('\n');
+
+  if (!visionEnabled) {
+    return text;
+  }
+
+  return [
+    {
+      type: 'text',
+      text
+    },
+    ...message.imageUrls.map((url) => ({
+      type: 'image_url' as const,
+      image_url: {
+        url
+      }
+    }))
+  ];
 }
 
 export interface PluginRoutingCandidateSummary {
@@ -427,17 +488,7 @@ export class AiClient {
         },
         {
           role: 'user',
-          content: [
-            `路由名称: ${route.name}`,
-            `路由模型: ${route.model}`,
-            `消息类型: ${message.chatType}`,
-            `发送者: ${message.senderNickname || message.userId}`,
-            `当前消息: ${message.cleanText || '(空文本)'}`,
-            `消息图片数量: ${message.imageUrls.length}`,
-            message.imageUrls.length > 0 ? `消息图片链接:\n${message.imageUrls.join('\n')}` : '消息图片链接: 无',
-            `上下文:\n${formatPromptContext(contextMessages, contextSummary)}`,
-            options?.fallbackContext ? `回退上下文:\n${options.fallbackContext}` : '回退上下文: 无'
-          ].join('\n')
+          content: buildRoutedReplyUserContent(message, contextMessages, route, options, contextSummary)
         }
       ],
       {

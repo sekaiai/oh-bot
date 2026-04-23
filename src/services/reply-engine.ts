@@ -121,6 +121,69 @@ function hasRecentAssistantReply(messages: SessionMessage[]): boolean {
   return lastMessage?.role === 'assistant';
 }
 
+function findLastUserMessage(messages: SessionMessage[]): SessionMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === 'user') {
+      return message;
+    }
+  }
+
+  return undefined;
+}
+
+function looksLikeFollowUpQuestion(text: string): boolean {
+  const normalized = normalizeText(text).replace(/\s+/g, '');
+  if (!normalized || normalized.length < 3) {
+    return false;
+  }
+
+  if (LOW_INFORMATION_REPLY_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+
+  return [
+    '?',
+    '？',
+    '吗',
+    '么',
+    '呢',
+    '哪个',
+    '什么',
+    '为啥',
+    '为什么',
+    '怎么',
+    '是不是',
+    '用的是',
+    '接的是',
+    '模型',
+    'ai',
+    'api',
+    '插件',
+    '这个',
+    '那个',
+    '刚才'
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function isFollowUpToRecentAssistantReply(messages: SessionMessage[], message: BotMessage, now: number): boolean {
+  const lastMessage = messages[messages.length - 1];
+  if (message.chatType !== 'group' || lastMessage?.role !== 'assistant') {
+    return false;
+  }
+
+  if (now - lastMessage.time > 180) {
+    return false;
+  }
+
+  const previousUserMessage = findLastUserMessage(messages.slice(0, -1));
+  if (previousUserMessage?.userId && previousUserMessage.userId !== message.userId) {
+    return false;
+  }
+
+  return looksLikeFollowUpQuestion(message.cleanText);
+}
+
 function shouldDiscardGeneratedGroupReply(reply: string): boolean {
   const compact = reply.trim().toLowerCase().replace(/\s+/g, '');
   if (!compact) {
@@ -198,6 +261,7 @@ export class ReplyEngine {
     const now = message.time;
     const isNameMention = message.chatType === 'group' && mentionsBotName(message.cleanText, rules.botNames);
     const persona = selectPersona(message, personas);
+    const isAssistantFollowUp = isFollowUpToRecentAssistantReply(contextMessages, message, now);
     let draftedReply: string | undefined;
 
     let shouldReply = false;
@@ -216,6 +280,9 @@ export class ReplyEngine {
     } else if (isNameMention) {
       shouldReply = true;
       reason = 'group_name_mention';
+    } else if (isAssistantFollowUp) {
+      shouldReply = true;
+      reason = 'group_context_related';
     } else {
       /**
        * 群聊非显式触发时先做两层保护：

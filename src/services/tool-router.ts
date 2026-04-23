@@ -383,6 +383,7 @@ function looksLikeSearchRequired(text: string): boolean {
     '热搜',
     '联网',
     '搜索',
+    '现在',
     '查一下最新',
     '最近发生'
   ].some((keyword) => normalized.includes(keyword));

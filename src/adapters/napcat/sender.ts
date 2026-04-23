@@ -22,6 +22,36 @@ export interface SendMediaParams {
   file: string;
 }
 
+function sanitizeLogValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    if (value.startsWith('base64://')) {
+      return `[base64 media omitted, chars=${value.length}]`;
+    }
+
+    if (value.length > 500) {
+      return `${value.slice(0, 500)}...[truncated, chars=${value.length}]`;
+    }
+
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeLogValue(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, sanitizeLogValue(nestedValue)])
+    );
+  }
+
+  return value;
+}
+
+function sanitizeMessageForLog(message: SendMessageParams['message']): unknown {
+  return sanitizeLogValue(message);
+}
+
 /**
  * 基于已连接的 WebSocket 客户端发送消息。
  *
@@ -60,7 +90,7 @@ export class NapcatSender {
         }
       });
 
-      logger.info({ groupId: params.groupId, message: params.message }, 'Sent group message');
+      logger.info({ groupId: params.groupId, message: sanitizeMessageForLog(params.message) }, 'Sent group message');
       return;
     }
 
@@ -76,7 +106,7 @@ export class NapcatSender {
       }
     });
 
-    logger.info({ userId: params.userId, message: params.message }, 'Sent private message');
+    logger.info({ userId: params.userId, message: sanitizeMessageForLog(params.message) }, 'Sent private message');
   }
 
   /**
