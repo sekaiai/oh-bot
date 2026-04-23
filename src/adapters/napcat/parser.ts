@@ -122,6 +122,7 @@ export function parseNapcatMessage(event: unknown): BotMessage | null {
   const rawText = extractText(payload.message, payload.raw_message).trim();
   const isAtBot = hasAtSelf(payload.message, selfId);
   const imageUrls = extractImageUrls(payload.message);
+  const groupName = typeof payload.group_name === 'string' ? payload.group_name.trim() : '';
 
   /**
    * 当前 `cleanText` 与 `rawText` 保持一致，等价于“尚未做命令清洗”。
@@ -132,6 +133,7 @@ export function parseNapcatMessage(event: unknown): BotMessage | null {
     messageId,
     userId,
     groupId: payload.message_type === 'group' ? groupId : undefined,
+    groupName: payload.message_type === 'group' ? groupName || undefined : undefined,
     chatType: payload.message_type,
     rawText,
     cleanText: rawText,

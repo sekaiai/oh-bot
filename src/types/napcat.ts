@@ -34,6 +34,7 @@ export interface NapcatMessageEvent {
   time?: number;
   user_id?: number;
   group_id?: number;
+  group_name?: string;
   message_id?: number;
   raw_message?: string;
   message?: string | NapcatMessageSegment[];

@@ -21,6 +21,8 @@ export interface BotMessage {
   userId: string;
   /** 群聊场景下的群 ID；私聊中留空。 */
   groupId?: string;
+  /** 群聊场景下的群名称；私聊中留空。 */
+  groupName?: string;
   chatType: ChatType;
   /** 从协议事件中提取出的原始文本视图。 */
   rawText: string;
@@ -139,6 +141,7 @@ export interface SessionMessage {
   messageId?: string;
   userId?: string;
   senderNickname?: string;
+  groupName?: string;
   chatType?: ChatType;
   isAtBot?: boolean;
   reason?: ReplyReason;
@@ -183,6 +186,49 @@ export interface ChatSession {
  */
 export interface SessionsData {
   sessions: Record<string, ChatSession>;
+}
+
+export interface ScheduledTaskTarget {
+  chatType: ChatType;
+  targetId: string;
+  displayName: string;
+}
+
+export type ScheduledTaskRunStatus = 'success' | 'partial' | 'failed';
+
+export interface ScheduledTaskExecutionTargetResult {
+  chatType: ChatType;
+  targetId: string;
+  displayName: string;
+  ok: boolean;
+  error?: string;
+}
+
+export interface ScheduledTaskExecutionLog {
+  id: string;
+  scheduledFor: string;
+  executedAt: number;
+  status: ScheduledTaskRunStatus;
+  message: string;
+  results: ScheduledTaskExecutionTargetResult[];
+}
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  enabled: boolean;
+  cronExpression: string;
+  timezone: string;
+  jitterSeconds: number;
+  messageTemplate: string;
+  pluginId?: PluginKind | '';
+  pluginPayload?: Record<string, unknown>;
+  targets: ScheduledTaskTarget[];
+  lastRunAt?: number;
+  lastRunScheduledFor?: string;
+  lastRunStatus?: ScheduledTaskRunStatus;
+  lastRunMessage?: string;
+  logs: ScheduledTaskExecutionLog[];
 }
 
 /**
@@ -252,6 +298,8 @@ export type QingmengParameterSource = 'fixed' | 'intent' | 'image_url';
 
 export type QingmengResponseMode = 'json_value' | 'json_list' | 'openai_text' | 'redirect_media';
 
+export type QingmengDisplayMode = 'none' | 'fixed';
+
 export interface QingmengEndpointParameter {
   id: string;
   name: string;
@@ -279,6 +327,8 @@ export interface QingmengEndpointConfig {
   listPath?: string;
   itemTitlePath?: string;
   itemUrlPath?: string;
+  displayMode?: QingmengDisplayMode;
+  displayText?: string;
   captionTemplate?: string;
   sampleInput: string;
   sampleImageUrl?: string;

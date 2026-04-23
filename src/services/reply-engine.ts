@@ -29,6 +29,14 @@ import { ToolRouter } from './tool-router.js';
 
 // 群聊上下文窗口按需求固定在 10~20 条范围内，并复用现有 MAX_CONTEXT_MESSAGES 配置。
 const GROUP_CONTEXT_WINDOW = Math.min(Math.max(config.MAX_CONTEXT_MESSAGES, 10), 20);
+const GROUP_REPLY_SCORE_THRESHOLD = 0.85;
+const LOW_INFORMATION_REPLY_PATTERNS = [
+  /^(哈)+[哈呵嘿]*[~!！。.?？]*$/i,
+  /^(嗯+|哦+|啊+|欸+)[~!！。.?？]*$/i,
+  /^(在的|来了|收到|知道了|懂了|明白了|好的|ok|okk|yes)[~!！。.?？]*$/i,
+  /^(确实|也是|对啊|对呢|是啊|有道理|没毛病|6+)[~!！。.?？]*$/i,
+  /^(有点意思|有点东西|这就对了|笑死|绷不住了)[~!！。.?？]*$/i
+];
 
 /**
  * 统一生成会话 key。
@@ -86,10 +94,10 @@ function selectPersona(message: BotMessage, registry: PersonaRegistry): PersonaC
     registry.personas.find((persona) => persona.id === personaId) ??
     registry.personas[0] ?? {
       id: 'assistant',
-      name: 'Assistant',
-      systemPrompt: '你是一个可靠、简洁、友好的 QQ 助手。',
-      temperature: 0.7,
-      maxTokens: 512
+      name: '稳健助手',
+      systemPrompt: '你是一个克制、可靠、直接的 QQ 助手。优先回答用户真正的问题，先给结论，再补必要说明。能一句说清就不说两句。不给无信息量寒暄，不接梗，不卖萌，不用油腻口头禅。群聊默认 1 到 2 句，只有在用户明确追问时再展开。',
+      temperature: 0.3,
+      maxTokens: 480
     }
   );
 }
@@ -110,6 +118,15 @@ function getRecentContext(messages: SessionMessage[], limit: number): SessionMes
 function hasRecentAssistantReply(messages: SessionMessage[]): boolean {
   const lastMessage = messages[messages.length - 1];
   return lastMessage?.role === 'assistant';
+}
+
+function shouldDiscardGeneratedGroupReply(reply: string): boolean {
+  const compact = reply.trim().toLowerCase().replace(/\s+/g, '');
+  if (!compact) {
+    return true;
+  }
+
+  return compact.length <= 16 && LOW_INFORMATION_REPLY_PATTERNS.some((pattern) => pattern.test(compact));
 }
 
 /**
@@ -232,12 +249,9 @@ export class ReplyEngine {
         );
         score = clampScore(decision.score);
 
-        if (score >= 0.75) {
+        if (score >= GROUP_REPLY_SCORE_THRESHOLD && decision.isContextuallyRelevant) {
           shouldReply = true;
           reason = 'group_context_high_value';
-        } else if (score >= 0.5 && decision.isContextuallyRelevant) {
-          shouldReply = true;
-          reason = 'group_context_related';
         } else {
           reason = 'group_low_value';
         }
@@ -304,6 +318,15 @@ export class ReplyEngine {
         },
         toolResolution.toolContext
       );
+
+      if (message.chatType === 'group' && shouldDiscardGeneratedGroupReply(reply)) {
+        return {
+          shouldReply: false,
+          reason: 'group_low_value',
+          score
+        };
+      }
+
       await this.sessionStore.recordAssistantReply(chatKey, reply, now, finalReason);
       return {
         shouldReply: true,

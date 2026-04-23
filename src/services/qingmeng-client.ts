@@ -144,6 +144,57 @@ function mediaSegmentType(group: QingmengEndpointConfig['group']): 'image' | 'vi
   return 'image';
 }
 
+function resolveDisplayMode(endpoint: QingmengEndpointConfig): 'none' | 'fixed' {
+  if (endpoint.displayMode) {
+    return endpoint.displayMode;
+  }
+
+  if (endpoint.group === 'image' || endpoint.group === 'video' || endpoint.group === 'audio') {
+    return 'none';
+  }
+
+  return 'fixed';
+}
+
+function resolveDisplayText(endpoint: QingmengEndpointConfig): string {
+  const displayText = endpoint.displayText?.trim();
+  if (displayText) {
+    return displayText;
+  }
+
+  return endpoint.captionTemplate?.trim() || endpoint.name;
+}
+
+function buildMediaSegments(endpoint: QingmengEndpointConfig, files: string[]): OutboundMessageSegment[] {
+  const segments: OutboundMessageSegment[] = [];
+  if (resolveDisplayMode(endpoint) === 'fixed') {
+    const displayText = resolveDisplayText(endpoint);
+    if (displayText) {
+      segments.push({
+        type: 'text',
+        data: {
+          text: `${displayText}\n`
+        }
+      });
+    }
+  }
+
+  for (const file of files) {
+    if (!file) {
+      continue;
+    }
+
+    segments.push({
+      type: mediaSegmentType(endpoint.group),
+      data: {
+        file
+      }
+    });
+  }
+
+  return segments;
+}
+
 function toBase64File(buffer: Buffer): string {
   return `base64://${buffer.toString('base64')}`;
 }
@@ -411,24 +462,10 @@ export class QingmengClient {
         };
       }
 
-      const segments: OutboundMessageSegment[] = [];
-      if (endpoint.captionTemplate) {
-        segments.push({
-          type: 'text',
-          data: {
-            text: `${endpoint.captionTemplate}\n`
-          }
-        });
-      }
-      segments.push({
-        type: mediaSegmentType(endpoint.group),
-        data: {
-          file: resolvedValue
-        }
-      });
+      const segments = buildMediaSegments(endpoint, [resolvedValue]);
 
       return {
-        replySummary: endpoint.captionTemplate || endpoint.name,
+        replySummary: resolveDisplayText(endpoint),
         outboundMessage: segments,
         diagnostics: {
           endpointId: endpoint.id,
@@ -462,39 +499,22 @@ export class QingmengClient {
         };
       }
 
-      const segments: OutboundMessageSegment[] = [];
-      if (endpoint.captionTemplate) {
-        segments.push({
-          type: 'text',
-          data: {
-            text: `${endpoint.captionTemplate}\n`
-          }
-        });
-      }
-
-      for (const item of items) {
-        const file =
+      const files = items
+        .map((item) =>
           typeof item === 'string'
             ? item
-            : String(getByPath(item, endpoint.itemUrlPath || 'url') ?? '').trim();
-        if (!file) {
-          continue;
-        }
+            : String(getByPath(item, endpoint.itemUrlPath || 'url') ?? '').trim()
+        )
+        .filter((item) => item.trim());
+      const segments = buildMediaSegments(endpoint, files);
 
-        segments.push({
-          type: mediaSegmentType(endpoint.group),
-          data: {
-            file
-          }
-        });
-      }
-
-      if (segments.length === 0) {
+      const mediaSegmentCount = segments.filter((segment) => segment.type !== 'text').length;
+      if (mediaSegmentCount === 0) {
         throw new Error('倾梦接口返回了列表，但没有可发送的媒体资源');
       }
 
       return {
-        replySummary: `${endpoint.captionTemplate || endpoint.name}，共 ${items.length} 项`,
+        replySummary: `${resolveDisplayText(endpoint)}，共 ${items.length} 项`,
         outboundMessage: segments,
         diagnostics: {
           endpointId: endpoint.id,
@@ -514,24 +534,10 @@ export class QingmengClient {
       file = resolveMediaFileValue(buffer, tempFilePath);
     }
 
-    const segments: OutboundMessageSegment[] = [];
-    if (endpoint.captionTemplate) {
-      segments.push({
-        type: 'text',
-        data: {
-          text: `${endpoint.captionTemplate}\n`
-        }
-      });
-    }
-    segments.push({
-      type: mediaSegmentType(endpoint.group),
-      data: {
-        file
-      }
-    });
+    const segments = buildMediaSegments(endpoint, [file]);
 
     return {
-      replySummary: endpoint.captionTemplate || endpoint.name,
+      replySummary: resolveDisplayText(endpoint),
       outboundMessage: segments,
       diagnostics: {
         endpointId: endpoint.id,

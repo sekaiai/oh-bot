@@ -13,6 +13,7 @@ import type {
   PersonaRegistry,
   PluginConfig,
   PluginKind,
+  ScheduledTask,
   QingmengEndpointConfig,
   QingmengPluginConfig,
   QWeatherPluginConfig,
@@ -24,6 +25,7 @@ const dataDir = path.resolve(process.cwd(), config.DATA_DIR);
 const rulesPath = path.join(dataDir, 'rules.json');
 const personasPath = path.join(dataDir, 'personas.json');
 const sessionsPath = path.join(dataDir, 'sessions.json');
+const tasksPath = path.join(dataDir, 'tasks.json');
 const runtimeSettingsPath = path.join(dataDir, 'runtime-settings.json');
 const pluginsDir = path.join(dataDir, 'plugins');
 
@@ -96,10 +98,38 @@ export async function loadPersonas(): Promise<PersonaRegistry> {
     personas: [
       {
         id: 'assistant',
-        name: 'Assistant',
-        systemPrompt: '你是一个可靠、简洁、友好的 QQ 助手。',
-        temperature: 0.7,
-        maxTokens: 512
+        name: '稳健助手',
+        systemPrompt: '你是一个克制、可靠、直接的 QQ 助手。优先回答用户真正的问题，先给结论，再补必要说明。能一句说清就不说两句。不给无信息量寒暄，不接梗，不卖萌，不用油腻口头禅。群聊默认 1 到 2 句，只有在用户明确追问时再展开。',
+        temperature: 0.3,
+        maxTokens: 480
+      },
+      {
+        id: 'brief',
+        name: '极简短答',
+        systemPrompt: '你是一个极简回复助手。只输出最关键的结论、答案或下一步动作。除非必要，不解释背景，不复述问题，不寒暄。适合群聊快节奏场景，回答要短、准、干净。',
+        temperature: 0.2,
+        maxTokens: 220
+      },
+      {
+        id: 'analyst',
+        name: '理性分析',
+        systemPrompt: '你是一个冷静、严谨的分析型助手。先识别问题核心，再给结论、依据和建议。遇到比较、判断、取舍、复盘、总结类请求时，优先给清晰结构。避免情绪化表达，避免空泛套话。',
+        temperature: 0.2,
+        maxTokens: 900
+      },
+      {
+        id: 'coder',
+        name: '技术助手',
+        systemPrompt: '你是一个面向开发和排障的技术助手。回答要准确、具体、可执行；优先给定位思路、修改建议、命令、代码或检查项。不要讲空话，不要过度铺垫，不要为了显得热情而堆废话。',
+        temperature: 0.15,
+        maxTokens: 1200
+      },
+      {
+        id: 'helper',
+        name: '生活助理',
+        systemPrompt: '你是一个务实的生活助理。适合处理日常建议、流程说明、整理总结、文案润色、信息归纳。优先提供步骤、注意事项和可执行建议。语气平实自然，不端着，也不油腻。',
+        temperature: 0.35,
+        maxTokens: 700
       }
     ],
     bindings: {}
@@ -237,6 +267,14 @@ function buildQingmengDefaultAliases(name: string): string[] {
 type QingmengEndpointSeed = Omit<QingmengEndpointConfig, 'intentAliases' | 'fallbackEligible'> &
   Partial<Pick<QingmengEndpointConfig, 'intentAliases' | 'fallbackEligible'>>;
 
+function getDefaultQingmengDisplayMode(endpoint: Pick<QingmengEndpointConfig, 'group'>): QingmengEndpointConfig['displayMode'] {
+  if (endpoint.group === 'image' || endpoint.group === 'video' || endpoint.group === 'audio') {
+    return 'none';
+  }
+
+  return 'fixed';
+}
+
 function createQingmengEndpoint(endpoint: QingmengEndpointSeed): QingmengEndpointConfig {
   const intentAliases = Array.isArray(endpoint.intentAliases) && endpoint.intentAliases.length > 0
     ? endpoint.intentAliases
@@ -245,6 +283,7 @@ function createQingmengEndpoint(endpoint: QingmengEndpointSeed): QingmengEndpoin
   return {
     ...endpoint,
     intentAliases,
+    displayMode: endpoint.displayMode ?? getDefaultQingmengDisplayMode(endpoint),
     fallbackEligible:
       endpoint.fallbackEligible ?? (endpoint.group === 'image' || endpoint.group === 'video' || endpoint.group === 'audio')
   };
@@ -316,6 +355,8 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         listPath: 'data',
         itemTitlePath: 'title',
         itemUrlPath: 'url',
+        displayMode: 'fixed',
+        displayText: '腾讯新闻头条',
         captionTemplate: '腾讯新闻头条',
         sampleInput: '来 5 条腾讯新闻头条'
       }),
@@ -366,6 +407,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看又纯又欲系列视频时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '又纯又欲',
         sampleInput: '来一段又纯又欲视频'
       }),
@@ -391,6 +433,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         ],
         responseMode: 'json_value',
         responsePath: 'text',
+        displayMode: 'none',
         captionTemplate: '自拍图片',
         sampleInput: '来一张自拍图片'
       }),
@@ -406,6 +449,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看热舞系列视频时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '热舞系列',
         sampleInput: '来一段热舞系列'
       }),
@@ -421,6 +465,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看吊带系列视频时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '吊带系列',
         sampleInput: '来一段吊带系列视频'
       }),
@@ -436,6 +481,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看清纯系列视频时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '清纯系列',
         sampleInput: '来一段清纯系列视频'
       }),
@@ -450,6 +496,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看纯情女高系列视频时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '纯情女高',
         sampleInput: '来一段纯情女高视频'
       }),
@@ -464,6 +511,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看少萝系列视频时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '少萝系列',
         sampleInput: '来一段少萝系列视频'
       }),
@@ -479,6 +527,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看 JK 图片时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: 'JK 图片',
         sampleInput: '来一张 JK 图片'
       }),
@@ -494,6 +543,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看黑丝图片时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '黑丝图片',
         sampleInput: '来一张黑丝图片'
       }),
@@ -509,6 +559,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看白丝图片时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '白丝图片',
         sampleInput: '来一张白丝图片'
       }),
@@ -524,6 +575,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看美女图片时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '美女图片',
         sampleInput: '来一张美女图片'
       }),
@@ -550,6 +602,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         ],
         responseMode: 'json_value',
         responsePath: 'text',
+        displayMode: 'none',
         captionTemplate: '动漫涩图',
         sampleInput: '来一张动漫涩图'
       }),
@@ -585,6 +638,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         ],
         responseMode: 'json_list',
         listPath: 'data',
+        displayMode: 'none',
         captionTemplate: '4K 壁纸',
         sampleInput: '来一张 4K 壁纸'
       }),
@@ -600,6 +654,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想看诱惑图片时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '诱惑图片',
         sampleInput: '来一张诱惑图片'
       }),
@@ -645,6 +700,8 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         ],
         responseMode: 'json_list',
         listPath: 'data',
+        displayMode: 'fixed',
+        displayText: '给你找到了这些壁纸',
         captionTemplate: '壁纸搜索',
         sampleInput: '搜一张动漫壁纸'
       }),
@@ -690,6 +747,8 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         ],
         responseMode: 'json_value',
         responsePath: 'data.0.Url',
+        displayMode: 'fixed',
+        displayText: '给你找了一张',
         captionTemplate: '堆糖搜图',
         sampleInput: '帮我搜一张动漫图'
       }),
@@ -705,6 +764,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想听原神 KFC 语音时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '原神 KFC 语音',
         sampleInput: '来一段原神 KFC 语音'
       }),
@@ -720,6 +780,7 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         intentPrompt: '当用户想听坤坤语音时使用。',
         parameters: [],
         responseMode: 'redirect_media',
+        displayMode: 'none',
         captionTemplate: '坤坤语音',
         sampleInput: '来一段坤坤语音'
       }),
@@ -764,6 +825,8 @@ function getDefaultQingmengPlugin(): QingmengPluginConfig {
         ],
         responseMode: 'json_value',
         responsePath: '$self',
+        displayMode: 'fixed',
+        displayText: '星座运势配对',
         captionTemplate: '星座运势配对',
         sampleInput: '帮我查一下白羊座本周运势'
       })
@@ -849,5 +912,25 @@ export async function loadSessionsData(): Promise<SessionsData> {
   });
 }
 
+export async function loadScheduledTasks(): Promise<ScheduledTask[]> {
+  const tasks = await readJsonFile<ScheduledTask[]>(tasksPath, []);
+  return Array.isArray(tasks)
+    ? tasks.map((task) => ({
+      ...task,
+      pluginId: typeof task.pluginId === 'string' ? task.pluginId : '',
+      pluginPayload: task.pluginPayload && typeof task.pluginPayload === 'object' ? task.pluginPayload : {},
+      messageTemplate: typeof task.messageTemplate === 'string' ? task.messageTemplate : '',
+      timezone: typeof task.timezone === 'string' && task.timezone.trim() ? task.timezone : 'Asia/Shanghai',
+      jitterSeconds: Number.isFinite(task.jitterSeconds) ? Math.max(0, Math.floor(task.jitterSeconds)) : 0,
+      targets: Array.isArray(task.targets) ? task.targets : [],
+      logs: Array.isArray(task.logs) ? task.logs.slice(0, 20) : []
+    }))
+    : [];
+}
+
+export async function saveScheduledTasks(tasks: ScheduledTask[]): Promise<void> {
+  await writeJsonFile(tasksPath, tasks);
+}
+
 /** 会话状态文件路径，供 store 层统一写回。 */
-export { sessionsPath, rulesPath, personasPath, runtimeSettingsPath, pluginsDir };
+export { sessionsPath, tasksPath, rulesPath, personasPath, runtimeSettingsPath, pluginsDir };

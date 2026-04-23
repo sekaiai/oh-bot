@@ -34,7 +34,7 @@
   "model_aliases": {
     "gpt-4o": "deepseek-chat",
     "gpt-5-codex": "deepseek-reasoner",
-    "o3": "deepseek-reasoner-search"
+    "o3": "deepseek-reasoner"
   },
   "responses": {
     "store_ttl_seconds": 900

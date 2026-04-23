@@ -115,6 +115,7 @@ export class SessionStore {
         messageId: message.messageId,
         userId: message.userId,
         senderNickname: message.senderNickname,
+        groupName: message.groupName,
         chatType: message.chatType,
         isAtBot: message.isAtBot
       };
