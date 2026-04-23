@@ -29,7 +29,7 @@ import { ToolRouter } from './tool-router.js';
 
 // 群聊上下文窗口按需求固定在 10~20 条范围内，并复用现有 MAX_CONTEXT_MESSAGES 配置。
 const GROUP_CONTEXT_WINDOW = Math.min(Math.max(config.MAX_CONTEXT_MESSAGES, 10), 20);
-const GROUP_REPLY_SCORE_THRESHOLD = 0.85;
+const GROUP_REPLY_SCORE_THRESHOLD = 0.6;
 const LOW_INFORMATION_REPLY_PATTERNS = [
   /^(哈)+[哈呵嘿]*[~!！。.?？]*$/i,
   /^(嗯+|哦+|啊+|欸+)[~!！。.?？]*$/i,
@@ -195,6 +195,8 @@ export class ReplyEngine {
     const recentReplyAt = session.lastReplyAt ?? 0;
     const now = message.time;
     const isNameMention = message.chatType === 'group' && mentionsBotName(message.cleanText, rules.botNames);
+    const persona = selectPersona(message, personas);
+    let draftedReply: string | undefined;
 
     let shouldReply = false;
     let reason: ReplyReason = 'group_low_value';
@@ -235,11 +237,12 @@ export class ReplyEngine {
       }
 
       try {
-        // 只有在通过硬规则后，才值得消耗一次模型调用做价值评分。
-        const decision = await this.aiClient.scoreGroupReplyCandidate(
+        // 群聊非显式触发时，把“是否回复”和“普通回复草稿”合并成一次调用。
+        const decision = await this.aiClient.scoreAndDraftGroupReply(
           message,
           contextMessages,
           rules.botNames,
+          persona,
           {
             baseUrl: config.AI_BASE_URL,
             apiKey: config.AI_API_KEY,
@@ -252,6 +255,7 @@ export class ReplyEngine {
         if (score >= GROUP_REPLY_SCORE_THRESHOLD && decision.isContextuallyRelevant) {
           shouldReply = true;
           reason = 'group_context_high_value';
+          draftedReply = decision.reply.trim() || undefined;
         } else {
           reason = 'group_low_value';
         }
@@ -276,7 +280,6 @@ export class ReplyEngine {
       };
     }
 
-    const persona = selectPersona(message, personas);
     /**
      * 生成回复时把当前消息附加到最近上下文尾部。
      * 由于入站消息已写入 store，这里不复用 store 中的新快照，而是直接在内存中补上当前消息，
@@ -303,21 +306,23 @@ export class ReplyEngine {
       }
 
       const finalReason = toolResolution.reason ?? reason;
-      // 有工具上下文时，最终回复仍然交给 AI 生成，
-      // 这样天气数据能自然融入既有人设、上下文和聊天语气，而不是变成生硬模板。
-      const reply = await this.aiClient.generateReply(
-        message,
-        generationContext,
-        persona,
-        finalReason,
-        {
-          baseUrl: config.AI_BASE_URL,
-          apiKey: config.AI_API_KEY,
-          model: config.AI_MODEL,
-          timeoutMs: config.AI_TIMEOUT_MS
-        },
-        toolResolution.toolContext
-      );
+      // 有工具上下文时，仍需要补一次基于工具结果的生成；否则优先复用前一步已经产出的群聊草稿。
+      const reply =
+        !toolResolution.toolContext && draftedReply
+          ? draftedReply
+          : await this.aiClient.generateReply(
+            message,
+            generationContext,
+            persona,
+            finalReason,
+            {
+              baseUrl: config.AI_BASE_URL,
+              apiKey: config.AI_API_KEY,
+              model: config.AI_MODEL,
+              timeoutMs: config.AI_TIMEOUT_MS
+            },
+            toolResolution.toolContext
+          );
 
       if (message.chatType === 'group' && shouldDiscardGeneratedGroupReply(reply)) {
         return {

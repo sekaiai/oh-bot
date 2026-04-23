@@ -29,6 +29,12 @@ const decisionSchema = z.object({
   isContextuallyRelevant: z.boolean()
 });
 
+const decisionWithDraftSchema = z.object({
+  score: z.number().min(0).max(1),
+  isContextuallyRelevant: z.boolean(),
+  reply: z.string().default('')
+});
+
 const replySchema = z.object({
   reply: z.string().min(1)
 });
@@ -273,6 +279,59 @@ export class AiClient {
 
     const parsed = decisionSchema.parse(JSON.parse(extractJsonPayload(raw)));
     return parsed;
+  }
+
+  async scoreAndDraftGroupReply(
+    message: BotMessage,
+    contextMessages: SessionMessage[],
+    botNames: string[],
+    persona: PersonaConfig,
+    service: AiEndpointConfig
+  ): Promise<{ score: number; isContextuallyRelevant: boolean; reply: string }> {
+    const raw = await this.createChatCompletion(
+      service,
+      [
+        {
+          role: 'system',
+          content: [
+            persona.systemPrompt,
+            '你是 QQ 群聊机器人“是否应该回复”的决策器，同时负责在值得回复时起草最终回复。',
+            '你必须根据当前消息和最近上下文，给出 score(0~1)、isContextuallyRelevant(boolean) 和 reply(string)。',
+            '判断标准以“机器人回复后是否能提供明显新增信息、结论、建议或执行帮助”为核心。',
+            'score 高价值信号：明确问题、求助、任务请求、决策请求、纠错、追问、总结、翻译、分析、排查、要求给方案、明显在寻求机器人能力。',
+            'score 中低价值信号：寒暄、接梗、附和、情绪表达、纯表情、单字灌水、哈哈哈、6、？、。 、在吗、重复刷屏、无上下文噪声。',
+            '如果机器人就算回复，也大概率只是附和、接话、复述、玩梗、寒暄，没有信息增量，则 score 必须压低。',
+            '只有当消息与上下文强相关，且机器人回复能带来明确信息增量，或明显是在寻求机器人能力时，isContextuallyRelevant 才能为 true。',
+            '如果不值得回复，reply 必须输出空字符串。',
+            '如果值得回复，reply 必须直接给出适合发送到群里的最终中文回复。',
+            '回复要求：简洁、自然、克制，优先提供结论、事实、建议或下一步动作。',
+            '不要寒暄，不要卖萌，不要玩梗，不要附和式复述，不要用“哈哈”“确实”“懂你”“有点东西”这类低信息填充。',
+            '群聊避免冗长，默认控制在 1 到 2 句，优先回答最关键的信息。',
+            '只输出 JSON，格式为 {"score":0.0,"isContextuallyRelevant":false,"reply":""}。'
+          ].join('\n')
+        },
+        {
+          role: 'user',
+          content: [
+            `机器人名称候选: ${botNames.join(', ') || '无'}`,
+            `消息类型: ${message.chatType}`,
+            `发送者: ${message.senderNickname || message.userId}`,
+            `当前消息: ${message.cleanText || '(空文本)'}`,
+            `最近上下文:\n${formatContextMessages(contextMessages)}`
+          ].join('\n')
+        }
+      ],
+      {
+        temperature: 0.1,
+        maxTokens: Math.min(320, persona.maxTokens)
+      }
+    );
+
+    const parsed = decisionWithDraftSchema.parse(JSON.parse(extractJsonPayload(raw)));
+    return {
+      ...parsed,
+      reply: parsed.reply.trim()
+    };
   }
 
   async generateReply(

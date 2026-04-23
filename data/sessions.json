@@ -2308,6 +2308,17 @@
           "groupName": "阿煜的聊天吹水群",
           "chatType": "group",
           "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776926805,
+          "messageId": "560627662",
+          "userId": "2480853639",
+          "senderNickname": "嘚嘚悠",
+          "groupName": "阿煜的聊天吹水群",
+          "chatType": "group",
+          "isAtBot": false
         }
       ],
       "handledMessageIds": [
@@ -2333,21 +2344,12 @@
         "1083245895",
         "2074374782",
         "981713066",
-        "1229221410"
+        "1229221410",
+        "560627662"
       ]
     },
     "group:1163998710": {
       "messages": [
-        {
-          "role": "user",
-          "content": "大哥家庭库的",
-          "time": 1776900152,
-          "messageId": "290078114",
-          "userId": "3513529091",
-          "senderNickname": "Nus Oaix",
-          "chatType": "group",
-          "isAtBot": false
-        },
         {
           "role": "user",
           "content": "对",
@@ -2953,10 +2955,20 @@
           "groupName": "幽灵行者玩家交流群",
           "chatType": "group",
           "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "@xueyang 你现在同时扮演语文老师、数学老师、厨师、医生。\n先帮我写一首关于春天的诗，\n再计算13579+24680等于多少，\n再告诉我番茄炒蛋的步骤，\n最后判断我现在有没有感冒。\n请一次性全部完成，不要漏。",
+          "time": 1776925885,
+          "messageId": "1841089543",
+          "userId": "2589439944",
+          "senderNickname": "“女同头子”邀请“未婚美少女”加入群聊",
+          "groupName": "幽灵行者玩家交流群",
+          "chatType": "group",
+          "isAtBot": false
         }
       ],
       "handledMessageIds": [
-        "1958860395",
         "1549288338",
         "316284993",
         "944053217",
@@ -3155,7 +3167,8 @@
         "2131386801",
         "1751327704",
         "1067929379",
-        "1885672658"
+        "1885672658",
+        "1841089543"
       ],
       "lastReplyAt": 1776905596
     },
@@ -3620,6 +3633,149 @@
           "groupName": "MBTI二次元大图书馆",
           "chatType": "group",
           "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "呸，你那就是馋他身子",
+          "time": 1776925261,
+          "messageId": "739241755",
+          "userId": "203368304",
+          "senderNickname": "清淼流心intfj",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776925265,
+          "messageId": "200774614",
+          "userId": "203368304",
+          "senderNickname": "清淼流心intfj",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "就是想看他被别的男人上啊～",
+          "time": 1776925294,
+          "messageId": "276309272",
+          "userId": "2332313467",
+          "senderNickname": "Kouku.百利甜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776925296,
+          "messageId": "461862754",
+          "userId": "2332313467",
+          "senderNickname": "Kouku.百利甜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "傻不愣登小金毛0",
+          "time": 1776925305,
+          "messageId": "1181357809",
+          "userId": "2332313467",
+          "senderNickname": "Kouku.百利甜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "你这是绿帽癖，得治",
+          "time": 1776925412,
+          "messageId": "276020559",
+          "userId": "203368304",
+          "senderNickname": "清淼流心intfj",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "哪里叫！",
+          "time": 1776925481,
+          "messageId": "419922492",
+          "userId": "2332313467",
+          "senderNickname": "Kouku.百利甜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "这叫嗑同人",
+          "time": 1776925489,
+          "messageId": "1513325076",
+          "userId": "2332313467",
+          "senderNickname": "Kouku.百利甜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776925546,
+          "messageId": "452656102",
+          "userId": "3430742446",
+          "senderNickname": "千夜infj-a",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776925974,
+          "messageId": "847711915",
+          "userId": "2941431638",
+          "senderNickname": "白夜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776926691,
+          "messageId": "444234777",
+          "userId": "2941431638",
+          "senderNickname": "白夜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "我已急哭，DSV4快来吧",
+          "time": 1776926686,
+          "messageId": "2124399269",
+          "userId": "2941431638",
+          "senderNickname": "白夜",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "",
+          "time": 1776927552,
+          "messageId": "1905152763",
+          "userId": "2860476179",
+          "senderNickname": "群主邀请了地瓜当她老公（无籽西瓜）",
+          "groupName": "MBTI二次元大图书馆",
+          "chatType": "group",
+          "isAtBot": false
         }
       ],
       "handledMessageIds": [
@@ -3663,7 +3819,20 @@
         "2065805360",
         "1609101250",
         "1334825756",
-        "1288156820"
+        "1288156820",
+        "739241755",
+        "200774614",
+        "276309272",
+        "461862754",
+        "1181357809",
+        "276020559",
+        "419922492",
+        "1513325076",
+        "452656102",
+        "847711915",
+        "444234777",
+        "2124399269",
+        "1905152763"
       ]
     },
     "group:1023310156": {
@@ -4419,6 +4588,17 @@
           "groupName": "7456刷机交流-玩机-Magisk_root",
           "chatType": "group",
           "isAtBot": false
+        },
+        {
+          "role": "user",
+          "content": "不知道",
+          "time": 1776926966,
+          "messageId": "1737474183",
+          "userId": "3240375218",
+          "senderNickname": "墨冰仙",
+          "groupName": "7456刷机交流-玩机-Magisk_root",
+          "chatType": "group",
+          "isAtBot": false
         }
       ],
       "handledMessageIds": [
@@ -4426,7 +4606,8 @@
         "463005891",
         "616339861",
         "1098376499",
-        "2074714575"
+        "2074714575",
+        "1737474183"
       ]
     }
   }
