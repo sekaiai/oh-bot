@@ -157,6 +157,119 @@ function createDs2ApiRoute(route: Partial<Ds2ApiRouteConfig> & Pick<Ds2ApiRouteC
   };
 }
 
+function getDefaultDs2ApiRoutes(): Ds2ApiRouteConfig[] {
+  return [
+    createDs2ApiRoute({
+      id: 'deepseek-chat',
+      name: '标准对话',
+      model: 'deepseek-chat',
+      intentPrompt: '用于日常问答、闲聊、解释常见概念、润色、总结，不需要联网搜索。',
+      systemPrompt: '你负责自然、简洁、直接的常规对话回复，优先给结论和可执行信息。',
+      temperature: 0.45,
+      maxTokens: 720
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-reasoner',
+      name: '标准推理',
+      model: 'deepseek-reasoner',
+      intentPrompt: '用于复杂分析、多步骤推理、方案比较、决策建议、较严肃的判断任务，不需要联网搜索。',
+      systemPrompt: '你负责较深入的推理分析，先抓核心问题，再给结论、依据和建议。',
+      temperature: 0.25,
+      maxTokens: 1400
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-chat-search',
+      name: '标准对话搜索',
+      model: 'deepseek-chat-search',
+      intentPrompt: '用于需要最新信息、实时信息、新闻、近期动态、联网检索的常规对话任务。',
+      systemPrompt: '你负责基于联网搜索结果给出简洁直接的回答，优先说明最新事实和关键变化。',
+      temperature: 0.35,
+      maxTokens: 900
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-reasoner-search',
+      name: '标准推理搜索',
+      model: 'deepseek-reasoner-search',
+      intentPrompt: '用于既需要最新信息又需要分析推理的任务，例如新闻解读、行情判断、最新方案比较。',
+      systemPrompt: '你负责结合联网搜索与推理，先整理事实，再给分析、判断和建议。',
+      temperature: 0.2,
+      maxTokens: 1600
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-expert-chat',
+      name: '专家对话',
+      model: 'deepseek-expert-chat',
+      intentPrompt: '用于专业但不需要强推理的问答，例如更严肃的说明、专业知识解释、较高质量写作。',
+      systemPrompt: '你负责更专业、更稳健的常规回答，表达克制清晰，不做无信息量寒暄。',
+      temperature: 0.35,
+      maxTokens: 960
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-expert-reasoner',
+      name: '专家推理',
+      model: 'deepseek-expert-reasoner',
+      intentPrompt: '用于高复杂度推理、专业分析、技术排查、架构判断等高难度任务，不需要联网搜索。',
+      systemPrompt: '你负责高强度专业推理，强调逻辑完整性、边界条件和实际可执行性。',
+      temperature: 0.15,
+      maxTokens: 1800
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-expert-chat-search',
+      name: '专家对话搜索',
+      model: 'deepseek-expert-chat-search',
+      intentPrompt: '用于需要最新资料、公开信息、行业动态的专业问答，但不要求特别长链路推理。',
+      systemPrompt: '你负责基于联网搜索做专业问答，优先输出最新事实、关键结论和可用建议。',
+      temperature: 0.25,
+      maxTokens: 1200
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-expert-reasoner-search',
+      name: '专家推理搜索',
+      model: 'deepseek-expert-reasoner-search',
+      intentPrompt: '用于需要最新信息 + 高复杂度分析的专业任务，例如最新技术方案比较、实时事件研判、时效性技术排障。',
+      systemPrompt: '你负责结合联网搜索和专家推理完成复杂任务，先整理证据，再给判断与方案。',
+      temperature: 0.1,
+      maxTokens: 2000
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-vision-chat',
+      name: '视觉对话',
+      model: 'deepseek-vision-chat',
+      intentPrompt: '用于图片理解、识图、图像内容说明、带图片的常规问答，不需要联网搜索。',
+      systemPrompt: '你负责看图后的常规解释和描述，先准确说明画面内容，再回答用户问题。',
+      temperature: 0.3,
+      maxTokens: 1000
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-vision-reasoner',
+      name: '视觉推理',
+      model: 'deepseek-vision-reasoner',
+      intentPrompt: '用于需要看图并做进一步分析、判断、推理的任务，不需要联网搜索。',
+      systemPrompt: '你负责基于图像内容做更深入分析，先明确可见信息，再进行判断和解释。',
+      temperature: 0.2,
+      maxTokens: 1400
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-vision-chat-search',
+      name: '视觉对话搜索',
+      model: 'deepseek-vision-chat-search',
+      intentPrompt: '用于既要看图，又需要结合最新公开信息或联网搜索做常规回答的任务。',
+      systemPrompt: '你负责结合图像理解和联网搜索完成回答，先说图像可见内容，再补充最新事实。',
+      temperature: 0.2,
+      maxTokens: 1300
+    }),
+    createDs2ApiRoute({
+      id: 'deepseek-vision-reasoner-search',
+      name: '视觉推理搜索',
+      model: 'deepseek-vision-reasoner-search',
+      intentPrompt: '用于既要看图、又要做复杂分析，并且依赖最新信息或联网搜索的任务。',
+      systemPrompt: '你负责结合图像、搜索结果和推理能力完成复杂任务，先整理证据，再给分析和结论。',
+      temperature: 0.1,
+      maxTokens: 1800
+    })
+  ];
+}
+
 function getDefaultDs2ApiPlugin(): Ds2ApiPluginConfig {
   return {
     id: 'ds2api',
@@ -166,35 +279,7 @@ function getDefaultDs2ApiPlugin(): Ds2ApiPluginConfig {
     baseUrl: 'http://127.0.0.1:6011/v1',
     apiKey: '',
     timeoutMs: config.AI_TIMEOUT_MS,
-    routes: [
-      createDs2ApiRoute({
-        id: 'chat',
-        name: '日常对话',
-        model: 'gpt-4o',
-        intentPrompt: '用于闲聊、简单问答、短回复、翻译、润色、解释常见概念、轻量建议。',
-        systemPrompt: '你负责自然、简洁、友好的日常回复，优先保持聊天感，不要过度展开。',
-        temperature: 0.7,
-        maxTokens: 640
-      }),
-      createDs2ApiRoute({
-        id: 'reasoning',
-        name: '复杂分析',
-        model: 'o3',
-        intentPrompt: '用于复杂分析、多步骤推理、方案比较、决策建议、长链路判断、严肃讨论。',
-        systemPrompt: '你负责更深入的分析和严谨推理，先抓关键矛盾，再给出结论和建议。',
-        temperature: 0.3,
-        maxTokens: 1400
-      }),
-      createDs2ApiRoute({
-        id: 'coding',
-        name: '代码技术',
-        model: 'gpt-5-codex',
-        intentPrompt: '用于编程、报错排查、代码解释、系统设计、接口联调、开发建议。',
-        systemPrompt: '你负责技术和代码问题，回答要直接、准确、可执行。',
-        temperature: 0.2,
-        maxTokens: 1600
-      })
-    ]
+    routes: getDefaultDs2ApiRoutes()
   };
 }
 

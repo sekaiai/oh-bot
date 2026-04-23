@@ -573,7 +573,7 @@ function buildDefaultDs2ApiRoute(): Ds2ApiRouteConfig {
     id: `route-${Math.random().toString(36).slice(2, 8)}`,
     name: '新路由',
     enabled: true,
-    model: 'gpt-4o',
+    model: 'deepseek-chat',
     intentPrompt: '',
     systemPrompt: '',
     temperature: 0.3,
