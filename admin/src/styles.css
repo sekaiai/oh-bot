@@ -611,6 +611,10 @@ a {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.plugin-compact-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .plugin-compact-grid-3,
 .route-core-grid,
 .endpoint-core-grid {
@@ -891,6 +895,10 @@ a {
   box-shadow: inset 0 0 0 1px rgba(88, 175, 134, 0.16);
 }
 
+.plugin-diagnostics-warn {
+  box-shadow: inset 0 0 0 1px rgba(225, 176, 93, 0.22);
+}
+
 .plugin-diagnostics-error {
   box-shadow: inset 0 0 0 1px rgba(214, 109, 88, 0.18);
 }
@@ -911,6 +919,62 @@ a {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.task-target-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.task-target-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.task-target-card {
+  padding: 14px;
+  border: 1px solid rgba(24, 52, 47, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.task-target-card p {
+  color: var(--admin-text-soft);
+}
+
+.task-preview-block {
+  display: grid;
+  gap: 8px;
+}
+
+.task-schedule-note {
+  padding: 12px 14px;
+  border: 1px solid rgba(24, 52, 47, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.68);
+  display: grid;
+  gap: 6px;
+}
+
+.task-preview-text {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(24, 52, 47, 0.1);
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--admin-text-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SFMono-Regular", "Menlo", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .field-block {
@@ -1196,6 +1260,18 @@ a {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+.session-log-modal .app-modal-header {
+  padding-bottom: 8px;
+}
+
+.session-log-modal .app-modal-body {
+  padding-top: 8px;
+}
+
+.session-log-viewport-modal {
+  max-height: min(72vh, 820px);
+}
+
 .log-entry {
   margin-bottom: 14px;
   padding: 16px;
@@ -1363,6 +1439,7 @@ a {
   }
 
   .plugin-compact-grid-3,
+  .plugin-compact-grid-4,
   .route-core-grid,
   .endpoint-core-grid,
   .plugin-form-grid-ds2api,
@@ -1427,6 +1504,7 @@ a {
 
   .plugin-compact-grid-2,
   .plugin-compact-grid-3,
+  .plugin-compact-grid-4,
   .route-core-grid,
   .endpoint-core-grid,
   .plugin-form-grid-ds2api,

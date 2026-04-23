@@ -66,7 +66,7 @@
         v-for="item in filteredSessions"
         :key="item.chatKey"
         class="surface-panel session-card"
-        :class="{ 'session-card-active': item.chatKey === store.selectedChatKey }"
+        :class="{ 'session-card-active': detailVisible && item.chatKey === store.selectedChatKey }"
       >
         <div class="session-card-title">
           <div class="session-title-block">
@@ -80,7 +80,7 @@
           <div class="session-card-actions">
             <button type="button" class="text-button" @click="openSettings(item)">设置</button>
             <button type="button" class="ui-button ui-button-ghost" @click="toggleDetail(item.chatKey)">
-              {{ item.chatKey === store.selectedChatKey ? '收起消息' : '展开消息' }}
+              {{ detailVisible && item.chatKey === store.selectedChatKey ? '收起消息' : '展开消息' }}
             </button>
           </div>
         </div>
@@ -130,73 +130,7 @@
       {{ store.loading ? '正在加载会话列表...' : '没有匹配的会话' }}
     </article>
 
-    <article class="surface-panel session-log-card">
-      <div class="session-log-head">
-        <div>
-          <strong>消息日志</strong>
-          <p v-if="selectedSummary">{{ selectedSummary.displayName }} · {{ selectedSummary.chatKey }}</p>
-          <p v-else>点击上方会话卡片中的“展开消息”查看日志。</p>
-        </div>
-        <span v-if="selectedSummary" class="mini-tag" :class="selectedSummary.status === 'banned' ? 'mini-tag-danger' : 'mini-tag-positive'">
-          {{ selectedSummary.status === 'banned' ? '封禁中' : '当前可用' }}
-        </span>
-      </div>
-
-      <template v-if="selectedSummary">
-        <div class="session-log-summary">
-          <div class="summary-pill">
-            <span>会话人格</span>
-            <strong>{{ selectedSummary.personaName }}</strong>
-          </div>
-          <div class="summary-pill">
-            <span>会话类型</span>
-            <strong>{{ selectedSummary.chatType === 'group' ? '群聊' : '私聊' }}</strong>
-          </div>
-          <div class="summary-pill">
-            <span>处理进度</span>
-            <strong>{{ selectedSummary.handledCount }} / {{ selectedSummary.messageCount }}</strong>
-          </div>
-        </div>
-
-        <div ref="logViewport" class="session-log-viewport">
-          <template v-if="store.detail?.session?.messages.length">
-            <article
-              v-for="(message, index) in store.detail.session.messages"
-              :key="`${message.time}-${index}`"
-              class="log-entry"
-              :class="`log-entry-${message.role}`"
-            >
-              <div class="log-entry-head">
-                <div class="log-entry-author">
-                  <span class="log-role">{{ formatRole(message.role) }}</span>
-                  <strong>{{ formatSpeaker(message) }}</strong>
-                  <span v-if="message.isAtBot" class="mini-tag mini-tag-warning">提及机器人</span>
-                </div>
-
-                <div class="log-entry-meta">
-                  <span>{{ formatTime(message.time) }}</span>
-                  <span v-if="message.reason" class="mini-tag mini-tag-muted">
-                    {{ formatReason(message.reason) }}
-                  </span>
-                </div>
-              </div>
-
-              <pre class="log-entry-content">{{ message.content }}</pre>
-            </article>
-          </template>
-
-          <div v-else class="log-empty">
-            {{ store.detailLoading ? '正在同步消息日志...' : '当前会话还没有可展示的消息。' }}
-          </div>
-        </div>
-      </template>
-
-      <div v-else class="empty-panel">
-        尚未选择会话
-      </div>
-    </article>
-
-    <AModal v-model:visible="settingsVisible" title="会话设置" :ok-loading="store.saving" @ok="saveSettings">
+    <BaseModal v-model:visible="settingsVisible" title="会话设置" :footer="true" @close="settingsVisible = false">
       <template v-if="settingsSummary">
         <div class="field-stack">
           <div class="modal-summary-list">
@@ -237,14 +171,105 @@
           </fieldset>
         </div>
       </template>
-    </AModal>
+      <template #footer>
+        <div class="modal-footer-actions">
+          <button type="button" class="ui-button" @click="settingsVisible = false">
+            取消
+          </button>
+          <button type="button" class="ui-button ui-button-primary" :disabled="store.saving" @click="saveSettings">
+            {{ store.saving ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </template>
+    </BaseModal>
+
+    <BaseModal
+      v-model:visible="detailVisible"
+      modal-class="session-log-modal"
+      :footer="false"
+      :mask-closable="true"
+      :width="960"
+      unmount-on-close
+      @close="closeDetail"
+      @cancel="closeDetail"
+    >
+      <template #title>
+        <div class="session-log-head">
+          <div>
+            <strong>消息日志</strong>
+            <p v-if="selectedSummary">{{ selectedSummary.displayName }} · {{ selectedSummary.chatKey }}</p>
+            <p v-else>正在准备会话日志...</p>
+          </div>
+          <span
+            v-if="selectedSummary"
+            class="mini-tag"
+            :class="selectedSummary.status === 'banned' ? 'mini-tag-danger' : 'mini-tag-positive'"
+          >
+            {{ selectedSummary.status === 'banned' ? '封禁中' : '当前可用' }}
+          </span>
+        </div>
+      </template>
+
+      <template v-if="selectedSummary">
+        <div class="session-log-summary">
+          <div class="summary-pill">
+            <span>会话人格</span>
+            <strong>{{ selectedSummary.personaName }}</strong>
+          </div>
+          <div class="summary-pill">
+            <span>会话类型</span>
+            <strong>{{ selectedSummary.chatType === 'group' ? '群聊' : '私聊' }}</strong>
+          </div>
+          <div class="summary-pill">
+            <span>处理进度</span>
+            <strong>{{ selectedSummary.handledCount }} / {{ selectedSummary.messageCount }}</strong>
+          </div>
+        </div>
+
+        <div ref="logViewport" class="session-log-viewport session-log-viewport-modal">
+          <template v-if="store.detail?.session?.messages.length">
+            <article
+              v-for="(message, index) in store.detail.session.messages"
+              :key="`${message.time}-${index}`"
+              class="log-entry"
+              :class="`log-entry-${message.role}`"
+            >
+              <div class="log-entry-head">
+                <div class="log-entry-author">
+                  <span class="log-role">{{ formatRole(message.role) }}</span>
+                  <strong>{{ formatSpeaker(message) }}</strong>
+                  <span v-if="message.isAtBot" class="mini-tag mini-tag-warning">提及机器人</span>
+                </div>
+
+                <div class="log-entry-meta">
+                  <span>{{ formatTime(message.time) }}</span>
+                  <span v-if="message.reason" class="mini-tag mini-tag-muted">
+                    {{ formatReason(message.reason) }}
+                  </span>
+                </div>
+              </div>
+
+              <pre class="log-entry-content">{{ message.content }}</pre>
+            </article>
+          </template>
+
+          <div v-else class="log-empty">
+            {{ store.detailLoading ? '正在同步消息日志...' : '当前会话还没有可展示的消息。' }}
+          </div>
+        </div>
+      </template>
+
+      <div v-else class="empty-panel">
+        尚未选择会话
+      </div>
+    </BaseModal>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { Modal as AModal } from '@arco-design/web-vue';
 import { ApiError } from '../api/client';
+import BaseModal from '../components/BaseModal.vue';
 import { usePersonaStore } from '../stores/personas';
 import { useSessionsStore } from '../stores/sessions';
 import type { SessionItemSummary, SessionMessage, SessionStatus } from '../types';
@@ -256,6 +281,7 @@ const personaStore = usePersonaStore();
 const keyword = ref('');
 const chatTypeFilter = ref<'all' | 'group' | 'private'>('all');
 const settingsVisible = ref(false);
+const detailVisible = ref(false);
 const settingsChatKey = ref('');
 const logViewport = ref<HTMLDivElement | null>(null);
 const notice = ref({
@@ -431,18 +457,24 @@ async function ensurePersonas(): Promise<void> {
 
 async function refreshAll(silent = false): Promise<void> {
   await store.fetchSessions({ silent });
-  if (store.selectedChatKey) {
+  if (detailVisible.value && store.selectedChatKey) {
     await store.fetchSessionDetail(store.selectedChatKey, { silent });
   }
 }
 
 async function toggleDetail(chatKey: string): Promise<void> {
-  if (store.selectedChatKey === chatKey) {
-    store.clearSelection();
+  if (detailVisible.value && store.selectedChatKey === chatKey) {
+    closeDetail();
     return;
   }
 
+  detailVisible.value = true;
   await store.fetchSessionDetail(chatKey);
+}
+
+function closeDetail(): void {
+  detailVisible.value = false;
+  store.clearSelection();
 }
 
 async function openSettings(summary: SessionItemSummary): Promise<void> {
@@ -498,8 +530,12 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => store.detail?.session?.messages.length,
+  () => [detailVisible.value, store.detail?.session?.messages.length],
   async () => {
+    if (!detailVisible.value) {
+      return;
+    }
+
     await nextTick();
     if (logViewport.value) {
       logViewport.value.scrollTo({

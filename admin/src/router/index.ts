@@ -6,6 +6,7 @@ import PluginsView from '../views/PluginsView.vue';
 import RulesView from '../views/RulesView.vue';
 import PersonasView from '../views/PersonasView.vue';
 import SessionsView from '../views/SessionsView.vue';
+import TasksView from '../views/TasksView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -16,6 +17,7 @@ const router = createRouter({
     { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { requiresAuth: true } },
     { path: '/runtime', redirect: '/plugins' },
     { path: '/plugins', name: 'plugins', component: PluginsView, meta: { requiresAuth: true } },
+    { path: '/tasks', name: 'tasks', component: TasksView, meta: { requiresAuth: true } },
     { path: '/rules', name: 'rules', component: RulesView, meta: { requiresAuth: true } },
     { path: '/personas', name: 'personas', component: PersonasView, meta: { requiresAuth: true } },
     { path: '/sessions', name: 'sessions', component: SessionsView, meta: { requiresAuth: true } }

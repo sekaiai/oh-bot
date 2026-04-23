@@ -73,6 +73,8 @@ export type QingmengParameterSource = 'fixed' | 'intent' | 'image_url';
 
 export type QingmengResponseMode = 'json_value' | 'json_list' | 'openai_text' | 'redirect_media';
 
+export type QingmengDisplayMode = 'none' | 'fixed';
+
 export interface QingmengEndpointParameter {
   id: string;
   name: string;
@@ -100,6 +102,8 @@ export interface QingmengEndpointConfig {
   listPath?: string;
   itemTitlePath?: string;
   itemUrlPath?: string;
+  displayMode?: QingmengDisplayMode;
+  displayText?: string;
   captionTemplate?: string;
   sampleInput: string;
   sampleImageUrl?: string;
@@ -121,6 +125,7 @@ export interface SessionMessage {
   messageId?: string;
   userId?: string;
   senderNickname?: string;
+  groupName?: string;
   chatType?: 'private' | 'group';
   isAtBot?: boolean;
   reason?: string;
@@ -159,6 +164,57 @@ export interface SessionDetailResponse {
   } | null;
 }
 
+export interface ScheduledTaskTarget {
+  chatType: 'group' | 'private';
+  targetId: string;
+  displayName: string;
+}
+
+export type ScheduledTaskRunStatus = 'success' | 'partial' | 'failed';
+
+export interface ScheduledTaskExecutionTargetResult {
+  chatType: 'group' | 'private';
+  targetId: string;
+  displayName: string;
+  ok: boolean;
+  error?: string;
+}
+
+export interface ScheduledTaskExecutionLog {
+  id: string;
+  scheduledFor: string;
+  executedAt: number;
+  status: ScheduledTaskRunStatus;
+  message: string;
+  results: ScheduledTaskExecutionTargetResult[];
+}
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  enabled: boolean;
+  cronExpression: string;
+  timezone: string;
+  jitterSeconds: number;
+  messageTemplate: string;
+  pluginId?: PluginKind | '';
+  pluginPayload?: Record<string, unknown>;
+  targets: ScheduledTaskTarget[];
+  lastRunAt?: number;
+  lastRunScheduledFor?: string;
+  lastRunStatus?: ScheduledTaskRunStatus;
+  lastRunMessage?: string;
+  logs: ScheduledTaskExecutionLog[];
+}
+
+export interface TaskTargetOption {
+  chatKey: string;
+  chatType: 'group' | 'private';
+  targetId: string;
+  displayName: string;
+  status: SessionStatus;
+}
+
 export interface UpdateSessionSettingsPayload {
   chatKey: string;
   personaId: string | null;
@@ -168,6 +224,10 @@ export interface UpdateSessionSettingsPayload {
 export interface UpdateSessionSettingsResponse {
   ok: boolean;
   summary: SessionItemSummary;
+}
+
+export interface ScheduledTasksResponse {
+  tasks: ScheduledTask[];
 }
 
 export interface ConfigSummary {

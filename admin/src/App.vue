@@ -48,8 +48,7 @@
         </button>
       </div>
 
-      <ADrawer v-model:visible="drawerVisible" placement="left" width="280px" unmount-on-close>
-        <template #title>导航</template>
+      <BaseDrawer v-model:visible="drawerVisible" title="导航" width="280px" unmount-on-close>
         <nav class="drawer-nav">
           <button
             v-for="item in navItems"
@@ -63,7 +62,7 @@
             <span>{{ item.label }}</span>
           </button>
         </nav>
-      </ADrawer>
+      </BaseDrawer>
     </template>
 
     <main class="app-main" :class="{ 'app-main-auth': !showLayout }">
@@ -79,7 +78,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Drawer as ADrawer } from '@arco-design/web-vue';
+import BaseDrawer from './components/BaseDrawer.vue';
 import { useAuthStore } from './stores/auth';
 
 interface NavItem {
@@ -97,6 +96,7 @@ const drawerVisible = ref(false);
 const navItems: NavItem[] = [
   { key: 'dashboard', label: '运行概览', path: '/dashboard', mark: '览' },
   { key: 'plugins', label: '插件配置', path: '/plugins', mark: '件' },
+  { key: 'tasks', label: '任务中心', path: '/tasks', mark: '任' },
   { key: 'rules', label: '规则配置', path: '/rules', mark: '规' },
   { key: 'personas', label: '人格配置', path: '/personas', mark: '人' },
   { key: 'sessions', label: '会话控制', path: '/sessions', mark: '会' }

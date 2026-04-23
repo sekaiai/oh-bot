@@ -308,13 +308,14 @@
       {{ pluginStore.loading ? '正在读取插件配置...' : '暂无插件配置数据' }}
     </article>
 
-    <AModal
+    <BaseModal
       v-model:visible="qingmengEditor.visible"
       :title="qingmengEditorTitle"
       :footer="false"
       :width="980"
       unmount-on-close
       @cancel="closeQingmengEditor"
+      @close="closeQingmengEditor"
     >
       <div class="field-stack">
         <div class="modal-summary-list">
@@ -386,15 +387,15 @@
           </button>
         </div>
       </div>
-    </AModal>
+    </BaseModal>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Modal as AModal } from '@arco-design/web-vue';
 import { z } from 'zod';
 import { ApiError } from '../api/client';
+import BaseModal from '../components/BaseModal.vue';
 import { usePluginStore } from '../stores/plugins';
 import type {
   Ds2ApiPluginConfig,
@@ -432,6 +433,8 @@ const qingmengEndpointJsonSchema = z.object({
   listPath: z.string().optional(),
   itemTitlePath: z.string().optional(),
   itemUrlPath: z.string().optional(),
+  displayMode: z.enum(['none', 'fixed']).optional(),
+  displayText: z.string().optional(),
   captionTemplate: z.string().optional(),
   sampleInput: z.string(),
   sampleImageUrl: z.union([z.string().url(), z.literal('')]).optional()
@@ -608,6 +611,8 @@ function buildDefaultEndpoint(): QingmengEndpointConfig {
     listPath: '',
     itemTitlePath: '',
     itemUrlPath: '',
+    displayMode: 'none',
+    displayText: '',
     captionTemplate: '',
     sampleInput: '',
     sampleImageUrl: ''
