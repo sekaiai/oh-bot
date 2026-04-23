@@ -17,10 +17,6 @@
       </div>
     </div>
 
-    <p v-if="notice.text" class="inline-feedback" :class="notice.error ? 'inline-feedback-error' : 'inline-feedback-success'">
-      {{ notice.text }}
-    </p>
-
     <div v-if="store.tasks.length > 0" class="plugin-stack">
       <article v-for="task in store.tasks" :key="task.id" class="surface-panel plugin-card">
         <div class="plugin-card-top">
@@ -114,10 +110,6 @@
       @cancel="closeEditor"
     >
       <div class="field-stack">
-        <p v-if="editor.feedback" class="inline-feedback" :class="editor.feedbackError ? 'inline-feedback-error' : 'inline-feedback-success'">
-          {{ editor.feedback }}
-        </p>
-
         <div class="plugin-compact-grid plugin-compact-grid-3">
           <label class="field-block">
             <span class="field-label">任务名称</span>
@@ -304,35 +296,24 @@
         </div>
 
         <div class="task-target-toolbar">
-          <div class="filter-tabs">
-            <button
-              v-for="type in targetFilters"
-              :key="type.value"
-              type="button"
-              class="filter-tab"
-              :class="{ 'filter-tab-active': editor.targetFilter === type.value }"
-              @click="editor.targetFilter = type.value"
-            >
-              {{ type.label }}
-            </button>
+          <div class="task-preview-block">
+            <span class="field-label">发送目标</span>
+            <strong>{{ selectedTargetSummary }}</strong>
+            <p class="field-note">默认候选继续使用会话记录，需要更多联系人或群时，再从 NapCat 搜索补充。</p>
           </div>
 
-          <input
-            v-model="editor.targetKeyword"
-            class="ui-input session-search"
-            type="search"
-            placeholder="搜索名称或 QQ / 群号"
-          />
+          <div class="hero-actions">
+            <button type="button" class="ui-button" @click="clearSelectedTargets">
+              清空已选
+            </button>
+            <button type="button" class="ui-button ui-button-primary" @click="openTargetPicker">
+              选择目标
+            </button>
+          </div>
         </div>
 
-        <div class="task-target-grid">
-          <label v-for="target in filteredTargets" :key="target.chatKey" class="task-target-card">
-            <input
-              :checked="editor.selectedTargetKeys.includes(target.chatKey)"
-              class="ui-checkbox"
-              type="checkbox"
-              @change="toggleTarget(target)"
-            />
+        <div v-if="selectedTargets.length > 0" class="task-target-grid">
+          <article v-for="target in selectedTargets" :key="target.chatKey" class="task-target-card">
             <div>
               <strong>{{ target.displayName }}</strong>
               <p>{{ target.chatType === 'group' ? `群号 ${target.targetId}` : `QQ ${target.targetId}` }}</p>
@@ -340,7 +321,10 @@
             <span class="mini-tag" :class="target.chatType === 'group' ? 'mini-tag-positive' : 'mini-tag-muted'">
               {{ target.chatType === 'group' ? '群聊' : '私聊' }}
             </span>
-          </label>
+            <button type="button" class="text-button" @click="toggleTarget(target)">
+              移除
+            </button>
+          </article>
         </div>
 
         <div class="modal-footer-actions">
@@ -367,6 +351,111 @@
         </div>
       </div>
     </BaseModal>
+
+    <BaseModal
+      v-model:visible="targetPicker.visible"
+      title="选择发送目标"
+      :footer="false"
+      :width="1040"
+      unmount-on-close
+      @close="closeTargetPicker"
+      @cancel="closeTargetPicker"
+    >
+      <div class="field-stack">
+        <div class="task-target-toolbar">
+          <div class="filter-tabs">
+            <button
+              v-for="type in targetFilters"
+              :key="type.value"
+              type="button"
+              class="filter-tab"
+              :class="{ 'filter-tab-active': targetPicker.type === type.value }"
+              @click="targetPicker.type = type.value"
+            >
+              {{ type.label }}
+            </button>
+          </div>
+
+          <div class="hero-actions">
+            <input
+              v-model="targetPicker.keyword"
+              class="ui-input session-search"
+              type="search"
+              placeholder="搜索群名、群号、联系人昵称、备注或 QQ"
+              @keydown.enter.prevent="searchNapcatTargets()"
+            />
+            <button type="button" class="ui-button" :disabled="targetPicker.searching" @click="searchNapcatTargets()">
+              {{ targetPicker.searching ? '搜索中...' : '搜索' }}
+            </button>
+          </div>
+        </div>
+
+        <section class="plugin-subpanel">
+          <div class="plugin-subpanel-head">
+            <div>
+              <p class="plugin-kicker">默认候选</p>
+              <strong>来自当前 sessions</strong>
+            </div>
+          </div>
+
+          <div v-if="filteredSessionTargets.length > 0" class="task-target-grid">
+            <label v-for="target in filteredSessionTargets" :key="target.chatKey" class="task-target-card">
+              <input
+                :checked="editor.selectedTargetKeys.includes(target.chatKey)"
+                class="ui-checkbox"
+                type="checkbox"
+                @change="toggleTarget(target)"
+              />
+              <div>
+                <strong>{{ target.displayName }}</strong>
+                <p>{{ target.chatType === 'group' ? `群号 ${target.targetId}` : `QQ ${target.targetId}` }}</p>
+              </div>
+              <span class="mini-tag" :class="target.chatType === 'group' ? 'mini-tag-positive' : 'mini-tag-muted'">
+                {{ target.chatType === 'group' ? '群聊' : '私聊' }}
+              </span>
+            </label>
+          </div>
+          <p v-else class="field-note">当前会话记录里没有匹配项。</p>
+        </section>
+
+        <section class="plugin-subpanel">
+          <div class="plugin-subpanel-head">
+            <div>
+              <p class="plugin-kicker">NapCat 搜索结果</p>
+              <strong>补充更多联系人和群</strong>
+            </div>
+          </div>
+
+          <div v-if="targetPicker.remoteResults.length > 0" class="task-target-grid">
+            <label v-for="target in targetPicker.remoteResults" :key="target.chatKey" class="task-target-card">
+              <input
+                :checked="editor.selectedTargetKeys.includes(target.chatKey)"
+                class="ui-checkbox"
+                type="checkbox"
+                @change="toggleTarget(target)"
+              />
+              <div>
+                <strong>{{ target.displayName }}</strong>
+                <p>{{ target.chatType === 'group' ? `群号 ${target.targetId}` : `QQ ${target.targetId}` }}</p>
+              </div>
+              <span class="mini-tag" :class="target.chatType === 'group' ? 'mini-tag-positive' : 'mini-tag-muted'">
+                {{ target.chatType === 'group' ? '群聊' : '私聊' }}
+              </span>
+            </label>
+          </div>
+          <p v-else class="field-note">输入关键词后从 NapCat 搜索，结果会限制在一小批，避免一次性展示过多目标。</p>
+        </section>
+
+        <div class="modal-footer-actions">
+          <button type="button" class="ui-button" @click="closeTargetPicker">
+            关闭
+          </button>
+          <button type="button" class="ui-button ui-button-primary" @click="closeTargetPicker">
+            确定
+          </button>
+        </div>
+      </div>
+    </BaseModal>
   </section>
 </template>
 
@@ -374,6 +463,7 @@
 import { computed, reactive, ref } from 'vue';
 import BaseModal from '../components/BaseModal.vue';
 import { ApiError, request } from '../api/client';
+import { useMessage } from '../stores/message';
 import { useTasksStore } from '../stores/tasks';
 import type {
   Ds2ApiPluginConfig,
@@ -383,17 +473,15 @@ import type {
   QingmengPluginConfig,
   ScheduledTask,
   ScheduledTaskTarget,
-  TaskTargetOption
+  TaskTargetOption,
+  TaskTargetSearchResponse
 } from '../types';
 
 type ScheduleMode = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
 
 const store = useTasksStore();
 const plugins = ref<PluginConfig[]>([]);
-const notice = ref({
-  text: '',
-  error: false
-});
+const message = useMessage();
 
 const targetFilters = [
   { value: 'all', label: '全部目标' },
@@ -423,11 +511,7 @@ const qingmengGroupLabels: Record<string, string> = {
 const editor = reactive({
   visible: false,
   taskId: '',
-  targetKeyword: '',
-  targetFilter: 'all' as 'all' | 'group' | 'private',
   selectedTargetKeys: [] as string[],
-  feedback: '',
-  feedbackError: false,
   running: false,
   form: buildDefaultTask(),
   schedule: {
@@ -454,6 +538,15 @@ const editor = reactive({
   }
 });
 
+const targetCache = ref<Record<string, TaskTargetOption>>({});
+const targetPicker = reactive({
+  visible: false,
+  keyword: '',
+  type: 'all' as 'all' | 'group' | 'private',
+  searching: false,
+  remoteResults: [] as TaskTargetOption[]
+});
+
 const ds2apiPlugin = computed(() => plugins.value.find((item): item is Ds2ApiPluginConfig => item.kind === 'ds2api'));
 const qingmengPlugin = computed(() => plugins.value.find((item): item is QingmengPluginConfig => item.kind === 'qingmeng'));
 const ds2apiRoutes = computed(() => ds2apiPlugin.value?.routes.filter((item) => item.enabled) ?? []);
@@ -476,10 +569,10 @@ const qingmengIntentParameters = computed(() => {
   return selectedQingmengEndpoint.value?.parameters.filter((item) => item.source === 'intent') ?? [];
 });
 
-const filteredTargets = computed(() => {
-  const keyword = editor.targetKeyword.trim().toLowerCase();
+const filteredSessionTargets = computed(() => {
+  const keyword = targetPicker.keyword.trim().toLowerCase();
   return store.targets.filter((target) => {
-    if (editor.targetFilter !== 'all' && target.chatType !== editor.targetFilter) {
+    if (targetPicker.type !== 'all' && target.chatType !== targetPicker.type) {
       return false;
     }
 
@@ -489,6 +582,24 @@ const filteredTargets = computed(() => {
 
     return `${target.displayName} ${target.targetId} ${target.chatKey}`.toLowerCase().includes(keyword);
   });
+});
+
+const selectedTargets = computed(() => {
+  return editor.selectedTargetKeys
+    .map((key) => targetCache.value[key])
+    .filter((target): target is TaskTargetOption => Boolean(target));
+});
+
+const selectedTargetSummary = computed(() => {
+  if (selectedTargets.value.length === 0) {
+    return '还没有选择发送目标';
+  }
+
+  if (selectedTargets.value.length <= 3) {
+    return selectedTargets.value.map((item) => item.displayName).join('、');
+  }
+
+  return `已选 ${selectedTargets.value.length} 个目标：${selectedTargets.value.slice(0, 3).map((item) => item.displayName).join('、')} 等`;
 });
 
 const currentSchedulePreview = computed(() => {
@@ -711,9 +822,15 @@ function taskContentPreview(task: ScheduledTask): string {
   return '未配置';
 }
 
-function resetEditorFeedback(): void {
-  editor.feedback = '';
-  editor.feedbackError = false;
+function rememberTargets(targets: TaskTargetOption[]): void {
+  if (targets.length === 0) {
+    return;
+  }
+
+  targetCache.value = {
+    ...targetCache.value,
+    ...Object.fromEntries(targets.map((target) => [target.chatKey, target]))
+  };
 }
 
 function applyTaskToEditor(task: ScheduledTask): void {
@@ -740,11 +857,19 @@ function applyTaskToEditor(task: ScheduledTask): void {
   const endpoint = qingmengPlugin.value?.endpoints.find((item) => item.id === endpointId);
   editor.qingmeng.group = endpoint?.group ?? qingmengGroupOptions.value[0]?.value ?? 'tool';
   editor.qingmeng.endpointId = endpointId || qingmengPlugin.value?.endpoints.find((item) => item.group === editor.qingmeng.group)?.id || '';
+  rememberTargets(
+    task.targets.map((target) => ({
+      chatKey: `${target.chatType}:${target.targetId}`,
+      chatType: target.chatType,
+      targetId: target.targetId,
+      displayName: target.displayName,
+      status: 'available',
+      source: 'session'
+    }))
+  );
 }
 
 function handlePluginChange(): void {
-  resetEditorFeedback();
-
   if (!editor.form.pluginId) {
     return;
   }
@@ -796,22 +921,32 @@ function handleQingmengEndpointChange(): void {
 }
 
 function openEditor(taskId = ''): void {
-  resetEditorFeedback();
   const task = taskId ? store.tasks.find((item) => item.id === taskId) : undefined;
   const nextTask = task ? cloneTask(task) : buildDefaultTask();
   editor.visible = true;
   editor.taskId = taskId;
-  editor.targetKeyword = '';
-  editor.targetFilter = 'all';
   editor.selectedTargetKeys = nextTask.targets.map((target) => `${target.chatType}:${target.targetId}`);
   applyTaskToEditor(nextTask);
+  rememberTargets(store.targets);
 }
 
 function closeEditor(): void {
   editor.visible = false;
+  closeTargetPicker();
+}
+
+function openTargetPicker(): void {
+  rememberTargets(store.targets);
+  targetPicker.remoteResults = [];
+  targetPicker.visible = true;
+}
+
+function closeTargetPicker(): void {
+  targetPicker.visible = false;
 }
 
 function toggleTarget(target: TaskTargetOption): void {
+  rememberTargets([target]);
   const key = target.chatKey;
   if (editor.selectedTargetKeys.includes(key)) {
     editor.selectedTargetKeys = editor.selectedTargetKeys.filter((item) => item !== key);
@@ -821,9 +956,13 @@ function toggleTarget(target: TaskTargetOption): void {
   editor.selectedTargetKeys = [...editor.selectedTargetKeys, key];
 }
 
+function clearSelectedTargets(): void {
+  editor.selectedTargetKeys = [];
+}
+
 function buildTargetsFromSelection(): ScheduledTaskTarget[] {
   return editor.selectedTargetKeys
-    .map((chatKey) => store.targets.find((target) => target.chatKey === chatKey))
+    .map((chatKey) => targetCache.value[chatKey])
     .filter((target): target is TaskTargetOption => Boolean(target))
     .map((target) => ({
       chatType: target.chatType,
@@ -911,23 +1050,43 @@ function buildEditorTask(): ScheduledTask {
   return nextTask;
 }
 
-async function persistTasks(nextTasks: ScheduledTask[], successText: string): Promise<void> {
+async function searchNapcatTargets(refresh = false): Promise<void> {
+  targetPicker.searching = true;
+
   try {
-    await store.saveTasks(nextTasks);
-    notice.value = { text: successText, error: false };
-  } catch (error) {
-    if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+    const params = new URLSearchParams();
+    if (targetPicker.keyword.trim()) {
+      params.set('keyword', targetPicker.keyword.trim());
+    }
+    params.set('type', targetPicker.type);
+    params.set('limit', '40');
+    if (refresh) {
+      params.set('refresh', '1');
+    }
+
+    const response = await request<TaskTargetSearchResponse>(`/admin/napcat-targets?${params.toString()}`);
+    targetPicker.remoteResults = response.targets;
+    rememberTargets(response.targets);
+
+    if (response.targets.length === 0) {
+      message.warning('NapCat 中没有找到匹配目标');
       return;
     }
 
-    notice.value = { text: '任务保存失败', error: true };
+    message.success(`NapCat 找到 ${response.targets.length} 个匹配目标`);
+  } catch (error) {
+    message.error(error instanceof ApiError ? error.message : 'NapCat 目标搜索失败');
+  } finally {
+    targetPicker.searching = false;
   }
 }
 
-async function saveEditor(): Promise<void> {
-  resetEditorFeedback();
+async function persistTasks(nextTasks: ScheduledTask[], successText: string): Promise<void> {
+  await store.saveTasks(nextTasks);
+  message.success(successText);
+}
 
+async function saveEditor(): Promise<void> {
   try {
     const nextTask = buildEditorTask();
     const tasks = [...store.tasks];
@@ -942,18 +1101,17 @@ async function saveEditor(): Promise<void> {
     await persistTasks(tasks, `任务 ${nextTask.name} 已保存`);
     closeEditor();
   } catch (error) {
-    editor.feedback = error instanceof Error ? error.message : '任务保存失败';
-    editor.feedbackError = true;
+    message.error(error instanceof ApiError ? error.message : error instanceof Error ? error.message : '任务保存失败');
   }
 }
 
 async function load(): Promise<void> {
-  notice.value = { text: '', error: false };
   const [_, loadedPlugins] = await Promise.all([
     store.fetchAll(),
     request<PluginConfig[]>('/admin/plugins')
   ]);
   plugins.value = loadedPlugins;
+  rememberTargets(store.targets);
 }
 
 async function removeTask(taskId: string): Promise<void> {
@@ -962,44 +1120,61 @@ async function removeTask(taskId: string): Promise<void> {
     return;
   }
 
-  await persistTasks(store.tasks.filter((item) => item.id !== taskId), `任务 ${target.name} 已删除`);
+  try {
+    await persistTasks(store.tasks.filter((item) => item.id !== taskId), `任务 ${target.name} 已删除`);
+  } catch (error) {
+    message.error(error instanceof ApiError ? error.message : '任务删除失败');
+  }
 }
 
 async function toggleTask(taskId: string): Promise<void> {
   const tasks = store.tasks.map((task) => task.id === taskId ? { ...task, enabled: !task.enabled } : task);
   const target = tasks.find((item) => item.id === taskId);
-  await persistTasks(tasks, `任务 ${target?.name ?? taskId} 状态已更新`);
+  try {
+    await persistTasks(tasks, `任务 ${target?.name ?? taskId} 状态已更新`);
+  } catch (error) {
+    message.error(error instanceof ApiError ? error.message : '任务状态更新失败');
+  }
 }
 
 async function runTask(taskId: string): Promise<void> {
   try {
     const log = await store.runTask(taskId);
-    notice.value = { text: log.message, error: log.status === 'failed' };
+    if (log.status === 'success') {
+      message.success(log.message);
+    } else if (log.status === 'partial') {
+      message.warning(log.message);
+    } else {
+      message.error(log.message);
+    }
   } catch (error) {
     if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+      message.error(error.message);
       return;
     }
 
-    notice.value = { text: '任务执行失败', error: true };
+    message.error('任务执行失败');
   }
 }
 
 async function runEditorTask(): Promise<void> {
   if (!editor.taskId) {
-    editor.feedback = '请先保存任务，再执行';
-    editor.feedbackError = true;
+    message.warning('请先保存任务，再执行');
     return;
   }
 
   editor.running = true;
   try {
     const log = await store.runTask(editor.taskId);
-    editor.feedback = log.message;
-    editor.feedbackError = log.status === 'failed';
+    if (log.status === 'success') {
+      message.success(log.message);
+    } else if (log.status === 'partial') {
+      message.warning(log.message);
+    } else {
+      message.error(log.message);
+    }
   } catch (error) {
-    editor.feedback = error instanceof ApiError ? error.message : '任务执行失败';
-    editor.feedbackError = true;
+    message.error(error instanceof ApiError ? error.message : '任务执行失败');
   } finally {
     editor.running = false;
   }

@@ -12,10 +12,6 @@
       </button>
     </div>
 
-    <p v-if="notice.text" class="inline-feedback" :class="notice.error ? 'inline-feedback-error' : 'inline-feedback-success'">
-      {{ notice.text }}
-    </p>
-
     <div v-if="plugins.length > 0" class="plugin-stack">
       <article v-for="plugin in plugins" :key="plugin.id" class="surface-panel plugin-card">
         <div class="plugin-card-top">
@@ -333,10 +329,6 @@
           </div>
         </div>
 
-        <p v-if="qingmengEditor.feedback" class="inline-feedback" :class="qingmengEditor.feedbackError ? 'inline-feedback-error' : 'inline-feedback-success'">
-          {{ qingmengEditor.feedback }}
-        </p>
-
         <label class="field-block">
           <span class="field-label">接口 JSON</span>
           <textarea
@@ -396,6 +388,7 @@ import { computed, ref } from 'vue';
 import { z } from 'zod';
 import { ApiError } from '../api/client';
 import BaseModal from '../components/BaseModal.vue';
+import { useMessage } from '../stores/message';
 import { usePluginStore } from '../stores/plugins';
 import type {
   Ds2ApiPluginConfig,
@@ -444,10 +437,7 @@ const pluginStore = usePluginStore();
 const plugins = ref<PluginConfig[]>([]);
 const pluginTestInputs = ref<Record<string, string>>({});
 const testResults = ref<Record<string, PluginTestResult | null>>({});
-const notice = ref({
-  text: '',
-  error: false
-});
+const message = useMessage();
 
 const qingmengEditor = ref({
   visible: false,
@@ -459,8 +449,6 @@ const qingmengEditor = ref({
   testInput: '',
   testImageUrl: '',
   testResult: null as PluginTestResult | null,
-  feedback: '',
-  feedbackError: false,
   saving: false,
   testing: false
 });
@@ -648,11 +636,6 @@ function validateEndpointIdUniqueness(plugin: QingmengPluginConfig, originalEndp
   }
 }
 
-function resetQingmengEditorFeedback(): void {
-  qingmengEditor.value.feedback = '';
-  qingmengEditor.value.feedbackError = false;
-}
-
 function openQingmengEditor(pluginId: string, endpointId = ''): void {
   const plugin = getQingmengPlugin(pluginId);
   if (!plugin) {
@@ -673,8 +656,6 @@ function openQingmengEditor(pluginId: string, endpointId = ''): void {
     testInput: endpoint.sampleInput || '',
     testImageUrl: endpoint.sampleImageUrl || '',
     testResult: null,
-    feedback: '',
-    feedbackError: false,
     saving: false,
     testing: false
   };
@@ -704,7 +685,6 @@ function removeDs2ApiRoute(pluginId: string, routeId: string): void {
 }
 
 async function load(): Promise<void> {
-  notice.value = { text: '', error: false };
   await pluginStore.fetchPlugins();
   syncLocalState(pluginStore.items);
 }
@@ -720,14 +700,14 @@ async function savePlugin(pluginId: string): Promise<void> {
   try {
     await pluginStore.savePlugin(payload);
     syncLocalState(pluginStore.items);
-    notice.value = { text: `插件 ${payload.name} 已保存`, error: false };
+    message.success(`插件 ${payload.name} 已保存`);
   } catch (error) {
     if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+      message.error(error.message);
       return;
     }
 
-    notice.value = { text: `插件 ${payload.name} 保存失败`, error: true };
+    message.error(`插件 ${payload.name} 保存失败`);
   }
 }
 
@@ -744,15 +724,15 @@ async function testPlugin(pluginId: string): Promise<void> {
       input: pluginTestInputs.value[pluginId] ?? ''
     }, plugin.id);
     testResults.value[plugin.id] = result;
-    notice.value = { text: `插件 ${payload.name} 测试完成`, error: !result.ok };
+    (result.ok ? message.success : message.error)(`插件 ${payload.name} 测试完成`);
   } catch (error) {
     testResults.value[plugin.id] = null;
     if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+      message.error(error.message);
       return;
     }
 
-    notice.value = { text: `插件 ${payload.name} 测试失败`, error: true };
+    message.error(`插件 ${payload.name} 测试失败`);
   }
 }
 
@@ -771,15 +751,15 @@ async function testDs2ApiRoute(pluginId: string, routeId: string): Promise<void>
       routeId
     }, key);
     testResults.value[key] = result;
-    notice.value = { text: `DS2API 路由测试完成：${routeId}`, error: !result.ok };
+    (result.ok ? message.success : message.error)(`DS2API 路由测试完成：${routeId}`);
   } catch (error) {
     testResults.value[key] = null;
     if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+      message.error(error.message);
       return;
     }
 
-    notice.value = { text: `DS2API 路由测试失败：${routeId}`, error: true };
+    message.error(`DS2API 路由测试失败：${routeId}`);
   }
 }
 
@@ -789,7 +769,6 @@ async function testQingmengEditor(): Promise<void> {
     return;
   }
 
-  resetQingmengEditorFeedback();
   qingmengEditor.value.testing = true;
 
   try {
@@ -806,12 +785,10 @@ async function testQingmengEditor(): Promise<void> {
       'qingmeng-editor'
     );
     qingmengEditor.value.testResult = result;
-    qingmengEditor.value.feedback = `接口测试完成：${endpoint.id}`;
-    qingmengEditor.value.feedbackError = !result.ok;
+    (result.ok ? message.success : message.error)(`接口测试完成：${endpoint.id}`);
   } catch (error) {
     qingmengEditor.value.testResult = null;
-    qingmengEditor.value.feedback = error instanceof ApiError ? error.message : error instanceof Error ? error.message : '接口测试失败';
-    qingmengEditor.value.feedbackError = true;
+    message.error(error instanceof ApiError ? error.message : error instanceof Error ? error.message : '接口测试失败');
   } finally {
     qingmengEditor.value.testing = false;
   }
@@ -823,7 +800,6 @@ async function saveQingmengEditor(): Promise<void> {
     return;
   }
 
-  resetQingmengEditorFeedback();
   qingmengEditor.value.saving = true;
 
   try {
@@ -832,11 +808,10 @@ async function saveQingmengEditor(): Promise<void> {
     const payload = buildQingmengEditorPlugin(plugin, qingmengEditor.value.endpointId, endpoint);
     await pluginStore.savePlugin(payload);
     syncLocalState(pluginStore.items);
-    notice.value = { text: `倾梦接口 ${endpoint.name} 已保存`, error: false };
+    message.success(`倾梦接口 ${endpoint.name} 已保存`);
     closeQingmengEditor();
   } catch (error) {
-    qingmengEditor.value.feedback = error instanceof ApiError ? error.message : error instanceof Error ? error.message : '接口保存失败';
-    qingmengEditor.value.feedbackError = true;
+    message.error(error instanceof ApiError ? error.message : error instanceof Error ? error.message : '接口保存失败');
   } finally {
     qingmengEditor.value.saving = false;
   }

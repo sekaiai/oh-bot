@@ -67,3 +67,22 @@ export interface NapcatActionResponse {
   wording?: string;
   echo?: string;
 }
+
+export interface NapcatFriendListItem {
+  user_id?: number;
+  userId?: number;
+  uin?: string | number;
+  uid?: string | number;
+  nickname?: string;
+  nick?: string;
+  remark?: string;
+}
+
+export interface NapcatGroupListItem {
+  group_id?: number;
+  groupId?: number;
+  group_name?: string;
+  groupName?: string;
+  group_remark?: string;
+  groupRemark?: string;
+}

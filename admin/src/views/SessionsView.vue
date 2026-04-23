@@ -16,10 +16,6 @@
       </div>
     </div>
 
-    <p v-if="notice.text" class="inline-feedback" :class="notice.error ? 'inline-feedback-error' : 'inline-feedback-success'">
-      {{ notice.text }}
-    </p>
-
     <article class="surface-panel">
       <div class="session-toolbar">
         <div class="session-toolbar-stats">
@@ -270,6 +266,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ApiError } from '../api/client';
 import BaseModal from '../components/BaseModal.vue';
+import { useMessage } from '../stores/message';
 import { usePersonaStore } from '../stores/personas';
 import { useSessionsStore } from '../stores/sessions';
 import type { SessionItemSummary, SessionMessage, SessionStatus } from '../types';
@@ -284,10 +281,7 @@ const settingsVisible = ref(false);
 const detailVisible = ref(false);
 const settingsChatKey = ref('');
 const logViewport = ref<HTMLDivElement | null>(null);
-const notice = ref({
-  text: '',
-  error: false
-});
+const message = useMessage();
 const settingsForm = reactive<{
   personaId: string;
   status: SessionStatus;
@@ -503,15 +497,15 @@ async function saveSettings(): Promise<void> {
       await store.fetchSessionDetail(chatKey, { silent: true });
     }
 
-    notice.value = { text: '会话设置已保存', error: false };
+    message.success('会话设置已保存');
     settingsVisible.value = false;
   } catch (error) {
     if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+      message.error(error.message);
       return;
     }
 
-    notice.value = { text: '保存失败，请稍后重试', error: true };
+    message.error('保存失败，请稍后重试');
   }
 }
 

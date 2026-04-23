@@ -88,7 +88,16 @@ interface TaskTargetOption {
   targetId: string;
   displayName: string;
   status: SessionStatus;
+  source: 'session' | 'napcat';
 }
+
+interface NapcatSearchCache {
+  friends: Array<Record<string, unknown>>;
+  groups: Array<Record<string, unknown>>;
+  updatedAt: number;
+}
+
+const NAPCAT_TARGET_CACHE_TTL_MS = 60 * 1000;
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown, origin?: string): void {
   response.statusCode = statusCode;
@@ -399,8 +408,78 @@ function buildTaskTargetOptions(
     chatType: item.chatType,
     targetId: item.targetId,
     displayName: item.displayName,
-    status: item.status
+    status: item.status,
+    source: 'session'
   }));
+}
+
+function normalizeNapcatFriendTarget(raw: Record<string, unknown>): TaskTargetOption | null {
+  const targetId = String(raw.user_id ?? raw.userId ?? raw.uin ?? raw.uid ?? '').trim();
+  if (!targetId) {
+    return null;
+  }
+
+  const displayName = String(raw.remark ?? raw.nickname ?? raw.nick ?? targetId).trim() || targetId;
+  return {
+    chatKey: `private:${targetId}`,
+    chatType: 'private',
+    targetId,
+    displayName,
+    status: 'available',
+    source: 'napcat'
+  };
+}
+
+function normalizeNapcatGroupTarget(raw: Record<string, unknown>): TaskTargetOption | null {
+  const targetId = String(raw.group_id ?? raw.groupId ?? '').trim();
+  if (!targetId) {
+    return null;
+  }
+
+  const displayName = String(raw.group_name ?? raw.groupName ?? raw.group_remark ?? raw.groupRemark ?? `群聊 ${targetId}`).trim();
+  return {
+    chatKey: `group:${targetId}`,
+    chatType: 'group',
+    targetId,
+    displayName: displayName || `群聊 ${targetId}`,
+    status: 'available',
+    source: 'napcat'
+  };
+}
+
+function filterTaskTargets(targets: TaskTargetOption[], keyword: string, type: 'all' | 'group' | 'private', limit: number): TaskTargetOption[] {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+
+  return targets
+    .filter((target) => {
+      if (type !== 'all' && target.chatType !== type) {
+        return false;
+      }
+
+      if (!normalizedKeyword) {
+        return true;
+      }
+
+      return `${target.displayName} ${target.targetId} ${target.chatKey}`.toLowerCase().includes(normalizedKeyword);
+    })
+    .slice(0, limit);
+}
+
+async function loadNapcatSearchCache(sender: NapcatSender, cache: NapcatSearchCache): Promise<NapcatSearchCache> {
+  const now = Date.now();
+  if (cache.updatedAt > 0 && now - cache.updatedAt < NAPCAT_TARGET_CACHE_TTL_MS) {
+    return cache;
+  }
+
+  const [friends, groups] = await Promise.all([
+    sender.getFriendList(),
+    sender.getGroupList()
+  ]);
+
+  cache.friends = friends.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'));
+  cache.groups = groups.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'));
+  cache.updatedAt = now;
+  return cache;
 }
 
 function allowCorsPreflight(request: IncomingMessage, response: ServerResponse): boolean {
@@ -423,6 +502,12 @@ function allowCorsPreflight(request: IncomingMessage, response: ServerResponse):
 }
 
 export function createAdminServer(sender: NapcatSender | null): Server {
+  const napcatSearchCache: NapcatSearchCache = {
+    friends: [],
+    groups: [],
+    updatedAt: 0
+  };
+
   const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET';
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
@@ -474,6 +559,38 @@ export function createAdminServer(sender: NapcatSender | null): Server {
       if (pathname === '/admin/task-targets' && method === 'GET') {
         const { sessionsData, rules, personas } = await loadAdminSessionContext();
         writeJson(response, 200, buildTaskTargetOptions(sessionsData.sessions, personas, rules), origin);
+        return;
+      }
+
+      if (pathname === '/admin/napcat-targets' && method === 'GET') {
+        if (!sender) {
+          writeJson(response, 503, toError('当前发送通道不可用，无法拉取 NapCat 目标列表'), origin);
+          return;
+        }
+
+        const keyword = String(url.searchParams.get('keyword') ?? '').trim();
+        const typeParam = String(url.searchParams.get('type') ?? 'all');
+        const type = typeParam === 'group' || typeParam === 'private' ? typeParam : 'all';
+        const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? '40') || 40));
+        const forceRefresh = url.searchParams.get('refresh') === '1';
+        if (forceRefresh) {
+          napcatSearchCache.updatedAt = 0;
+        }
+
+        const cache = await loadNapcatSearchCache(sender, napcatSearchCache);
+        const targets = [
+          ...cache.friends.map(normalizeNapcatFriendTarget).filter((item): item is TaskTargetOption => Boolean(item)),
+          ...cache.groups.map(normalizeNapcatGroupTarget).filter((item): item is TaskTargetOption => Boolean(item))
+        ];
+
+        writeJson(
+          response,
+          200,
+          {
+            targets: filterTaskTargets(targets, keyword, type, limit)
+          },
+          origin
+        );
         return;
       }
 

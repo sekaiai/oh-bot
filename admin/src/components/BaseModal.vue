@@ -2,7 +2,7 @@
   <Teleport to="body">
     <div v-if="shouldRender" v-show="visible" class="app-modal-root" :class="rootClass" @keydown.esc="handleCancel">
       <div class="app-modal-mask" @click="handleMaskClick" />
-      <div class="app-modal-shell">
+      <div class="app-modal-shell" @click.self="handleMaskClick">
         <section class="app-modal-card" :style="cardStyle" role="dialog" aria-modal="true">
           <header v-if="hasHeader" class="app-modal-header">
             <slot name="title">

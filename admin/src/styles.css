@@ -112,6 +112,72 @@ a {
     radial-gradient(circle at 80% 80%, rgba(19, 95, 87, 0.16), transparent 26%);
 }
 
+.global-message-stack {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  z-index: 2200;
+  width: min(560px, calc(100vw - 28px));
+  display: grid;
+  gap: 10px;
+  transform: translateX(-50%);
+}
+
+.global-message {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(24, 52, 47, 0.12);
+  background: rgba(255, 252, 247, 0.98);
+  box-shadow: 0 20px 48px rgba(51, 40, 18, 0.16);
+  backdrop-filter: blur(18px);
+}
+
+.global-message p {
+  margin: 0;
+  min-width: 0;
+  color: var(--admin-text);
+  word-break: break-word;
+}
+
+.global-message-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--admin-accent);
+  box-shadow: 0 0 0 6px rgba(19, 95, 87, 0.08);
+}
+
+.global-message-success .global-message-dot {
+  background: #3d8a66;
+  box-shadow: 0 0 0 6px rgba(61, 138, 102, 0.1);
+}
+
+.global-message-error .global-message-dot {
+  background: var(--admin-danger);
+  box-shadow: 0 0 0 6px rgba(178, 75, 61, 0.1);
+}
+
+.global-message-warning .global-message-dot {
+  background: var(--admin-warning);
+  box-shadow: 0 0 0 6px rgba(184, 119, 47, 0.1);
+}
+
+.global-message-info .global-message-dot {
+  background: var(--admin-accent);
+}
+
+.global-message-close {
+  border: none;
+  background: transparent;
+  color: var(--admin-text-soft);
+  padding: 0;
+  font-size: 12px;
+}
+
 .app-sidebar,
 .app-main,
 .mobile-toolbar {
@@ -1015,6 +1081,7 @@ a {
 
 .ui-button,
 .text-button {
+  white-space: nowrap;
   border: 1px solid rgba(24, 52, 47, 0.14);
   border-radius: 999px;
   transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;

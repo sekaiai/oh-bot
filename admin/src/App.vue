@@ -1,6 +1,7 @@
 <template>
   <div class="admin-shell" :class="{ 'admin-shell-auth': !showLayout }">
     <div class="admin-ambient" />
+    <GlobalMessageHost />
 
     <template v-if="showLayout">
       <aside class="app-sidebar">
@@ -79,6 +80,7 @@
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import BaseDrawer from './components/BaseDrawer.vue';
+import GlobalMessageHost from './components/GlobalMessageHost.vue';
 import { useAuthStore } from './stores/auth';
 
 interface NavItem {

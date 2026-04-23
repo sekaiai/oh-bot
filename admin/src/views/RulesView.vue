@@ -17,10 +17,6 @@
       </div>
     </div>
 
-    <p v-if="notice.text" class="inline-feedback" :class="notice.error ? 'inline-feedback-error' : 'inline-feedback-success'">
-      {{ notice.text }}
-    </p>
-
     <template v-if="draft">
       <div class="form-grid form-grid-two">
         <article class="surface-panel">
@@ -99,15 +95,13 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
 import { ApiError } from '../api/client';
+import { useMessage } from '../stores/message';
 import { useRuleStore } from '../stores/rules';
 import type { RuleConfig } from '../types';
 
 const rulesStore = useRuleStore();
 const draft = ref<RuleConfig | null>(null);
-const notice = ref({
-  text: '',
-  error: false
-});
+const message = useMessage();
 
 const form = reactive({
   admins: '',
@@ -137,7 +131,6 @@ function syncFromDraft(value: RuleConfig): void {
 }
 
 async function load(): Promise<void> {
-  notice.value = { text: '', error: false };
   await rulesStore.fetchRules();
   if (rulesStore.rules) {
     draft.value = { ...rulesStore.rules };
@@ -163,14 +156,14 @@ async function save(): Promise<void> {
   try {
     await rulesStore.saveRules(payload);
     draft.value = payload;
-    notice.value = { text: '规则配置已保存', error: false };
+    message.success('规则配置已保存');
   } catch (error) {
     if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+      message.error(error.message);
       return;
     }
 
-    notice.value = { text: '保存失败，请稍后重试', error: true };
+    message.error('保存失败，请稍后重试');
   }
 }
 

@@ -11,7 +11,8 @@
  * 目的是保持它只关注传输层状态，而不是演化成一个难维护的全功能协议栈。
  */
 import WebSocket from 'ws';
-import type { NapcatActionRequest } from '../../types/napcat.js';
+import { randomUUID } from 'node:crypto';
+import type { NapcatActionRequest, NapcatActionResponse } from '../../types/napcat.js';
 import { logger } from '../../utils/logger.js';
 
 /**
@@ -42,6 +43,14 @@ export class NapcatWsClient {
   private readonly reconnectDelayMs: number;
   private readonly options: WsClientOptions;
   private isShuttingDown = false;
+  private readonly pendingRequests = new Map<
+    string,
+    {
+      resolve: (response: NapcatActionResponse) => void;
+      reject: (error: Error) => void;
+      timer: NodeJS.Timeout;
+    }
+  >();
 
   constructor(options: WsClientOptions) {
     this.options = options;
@@ -72,6 +81,7 @@ export class NapcatWsClient {
       try {
         const raw = typeof data === 'string' ? data : data.toString('utf-8');
         const payload = JSON.parse(raw) as unknown;
+        this.resolvePendingRequest(payload);
         // 传输层只保证“这是 JSON”，至于事件语义是否合法，由上层适配器继续判断。
         Promise.resolve(this.options.onEvent(payload)).catch((error) => {
           logger.error({ err: error }, 'NapCat event handler failed');
@@ -92,6 +102,7 @@ export class NapcatWsClient {
     this.ws.on('close', (code, reason) => {
       logger.warn({ code, reason: reason.toString() }, 'NapCat WebSocket closed');
       this.ws = null;
+      this.rejectPendingRequests(new Error(`NapCat WebSocket closed: ${code}`));
       if (!this.isShuttingDown) {
         // 只有“非主动关闭”才会进入自动重连，否则退出流程会被连接层反复拉起。
         this.scheduleReconnect();
@@ -130,6 +141,31 @@ export class NapcatWsClient {
     }
     this.ws?.close();
     this.ws = null;
+    this.rejectPendingRequests(new Error('NapCat WebSocket client is shutting down'));
+  }
+
+  async requestAction<T = unknown>(action: NapcatActionRequest, timeoutMs = 10000): Promise<NapcatActionResponse & { data?: T }> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('NapCat WebSocket is not connected');
+    }
+
+    const echo = action.echo || `echo-${randomUUID()}`;
+
+    const response = await new Promise<NapcatActionResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(echo);
+        reject(new Error(`NapCat action timed out: ${action.action}`));
+      }, timeoutMs);
+
+      this.pendingRequests.set(echo, { resolve, reject, timer });
+      this.ws?.send(JSON.stringify({ ...action, echo }));
+    });
+
+    if (response.status === 'failed') {
+      throw new Error(response.message || response.wording || `NapCat action failed: ${action.action}`);
+    }
+
+    return response as NapcatActionResponse & { data?: T };
   }
 
   /**
@@ -150,5 +186,33 @@ export class NapcatWsClient {
       this.reconnectTimer = null;
       this.connect();
     }, this.reconnectDelayMs);
+  }
+
+  private resolvePendingRequest(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    const echo = 'echo' in payload ? payload.echo : undefined;
+    if (typeof echo !== 'string') {
+      return;
+    }
+
+    const pending = this.pendingRequests.get(echo);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    this.pendingRequests.delete(echo);
+    pending.resolve(payload as NapcatActionResponse);
+  }
+
+  private rejectPendingRequests(error: Error): void {
+    for (const [echo, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+      this.pendingRequests.delete(echo);
+    }
   }
 }

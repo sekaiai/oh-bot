@@ -5,6 +5,7 @@
  * 入口层只需要表达“往哪里发什么”，不需要知道具体 action 名称和字段格式。
  */
 import type { OutboundMessageSegment, SendMessageParams } from '../../types/bot.js';
+import type { NapcatFriendListItem, NapcatGroupListItem } from '../../types/napcat.js';
 import type { NapcatWsClient } from './ws-client.js';
 import { logger } from '../../utils/logger.js';
 
@@ -142,5 +143,27 @@ export class NapcatSender {
       groupId: params.groupId,
       message: [{ type: 'video', data: { file: params.file } }]
     });
+  }
+
+  async getFriendList(noCache = false): Promise<NapcatFriendListItem[]> {
+    const response = await this.wsClient.requestAction<NapcatFriendListItem[]>({
+      action: 'get_friend_list',
+      params: {
+        no_cache: noCache
+      }
+    });
+
+    return Array.isArray(response.data) ? response.data : [];
+  }
+
+  async getGroupList(noCache = false): Promise<NapcatGroupListItem[]> {
+    const response = await this.wsClient.requestAction<NapcatGroupListItem[]>({
+      action: 'get_group_list',
+      params: {
+        no_cache: noCache
+      }
+    });
+
+    return Array.isArray(response.data) ? response.data : [];
   }
 }

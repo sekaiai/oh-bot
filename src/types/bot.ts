@@ -231,6 +231,17 @@ export interface ScheduledTask {
   logs: ScheduledTaskExecutionLog[];
 }
 
+export type TaskTargetSource = 'session' | 'napcat';
+
+export interface TaskTargetOption {
+  chatKey: string;
+  chatType: ChatType;
+  targetId: string;
+  displayName: string;
+  status: 'available' | 'banned';
+  source: TaskTargetSource;
+}
+
 /**
  * 运行规则配置。
  *

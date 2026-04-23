@@ -9,7 +9,7 @@
     "messageTemplate": "",
     "pluginId": "ds2api",
     "pluginPayload": {
-      "routeId": "chat",
+      "routeId": "legacy",
       "prompt": "写一条适合早上发送到群里的简短晨间问候"
     },
     "targets": [

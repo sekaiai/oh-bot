@@ -17,10 +17,6 @@
       </div>
     </div>
 
-    <p v-if="notice.text" class="inline-feedback" :class="notice.error ? 'inline-feedback-error' : 'inline-feedback-success'">
-      {{ notice.text }}
-    </p>
-
     <template v-if="draft">
       <article class="surface-panel">
         <div class="panel-header">
@@ -121,16 +117,14 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { ApiError } from '../api/client';
+import { useMessage } from '../stores/message';
 import { usePersonaStore } from '../stores/personas';
 import type { PersonaRegistry } from '../types';
 
 const personaStore = usePersonaStore();
 const draft = ref<PersonaRegistry | null>(null);
 const bindingsText = ref('');
-const notice = ref({
-  text: '',
-  error: false
-});
+const message = useMessage();
 
 function formatBindings(bindings: Record<string, string>): string {
   return Object.entries(bindings)
@@ -189,7 +183,6 @@ function removePersona(index: number): void {
 }
 
 async function load(): Promise<void> {
-  notice.value = { text: '', error: false };
   await personaStore.fetchPersonas();
   if (personaStore.data) {
     draft.value = JSON.parse(JSON.stringify(personaStore.data)) as PersonaRegistry;
@@ -210,14 +203,14 @@ async function save(): Promise<void> {
   try {
     await personaStore.savePersonas(payload);
     draft.value = JSON.parse(JSON.stringify(payload)) as PersonaRegistry;
-    notice.value = { text: '人格配置已保存', error: false };
+    message.success('人格配置已保存');
   } catch (error) {
     if (error instanceof ApiError) {
-      notice.value = { text: error.message, error: true };
+      message.error(error.message);
       return;
     }
 
-    notice.value = { text: '保存失败，请稍后重试', error: true };
+    message.error('保存失败，请稍后重试');
   }
 }
 

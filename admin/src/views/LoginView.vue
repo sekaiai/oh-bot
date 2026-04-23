@@ -33,8 +33,6 @@
           />
         </label>
 
-        <p v-if="errorMessage" class="inline-feedback inline-feedback-error">{{ errorMessage }}</p>
-
         <button type="submit" class="ui-button ui-button-primary ui-button-block" :disabled="auth.loading">
           {{ auth.loading ? '登录中...' : '登录管理端' }}
         </button>
@@ -47,31 +45,31 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ApiError } from '../api/client';
+import { useMessage } from '../stores/message';
 import { useAuthStore } from '../stores/auth';
 
 const auth = useAuthStore();
 const router = useRouter();
 const password = ref('');
-const errorMessage = ref('');
+const message = useMessage();
 
 async function submit(): Promise<void> {
-  errorMessage.value = '';
-
   if (!password.value.trim()) {
-    errorMessage.value = '请输入管理密码';
+    message.warning('请输入管理密码');
     return;
   }
 
   try {
     await auth.login(password.value.trim());
+    message.success('登录成功');
     await router.push('/dashboard');
   } catch (error) {
     if (error instanceof ApiError) {
-      errorMessage.value = error.message;
+      message.error(error.message);
       return;
     }
 
-    errorMessage.value = '登录失败，请稍后重试';
+    message.error('登录失败，请稍后重试');
   }
 }
 </script>

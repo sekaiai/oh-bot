@@ -213,6 +213,11 @@ export interface TaskTargetOption {
   targetId: string;
   displayName: string;
   status: SessionStatus;
+  source: 'session' | 'napcat';
+}
+
+export interface TaskTargetSearchResponse {
+  targets: TaskTargetOption[];
 }
 
 export interface UpdateSessionSettingsPayload {
