@@ -110,6 +110,18 @@ function formatContextMessages(contextMessages: SessionMessage[]): string {
     .join('\n');
 }
 
+function formatPromptContext(contextMessages: SessionMessage[], contextSummary?: string): string {
+  const sections: string[] = [];
+  const normalizedSummary = contextSummary?.trim();
+
+  if (normalizedSummary) {
+    sections.push(`会话摘要:\n${normalizedSummary}`);
+  }
+
+  sections.push(`最近原文:\n${formatContextMessages(contextMessages)}`);
+  return sections.join('\n\n');
+}
+
 function createDs2ApiService(plugin: Ds2ApiPluginConfig, route: Ds2ApiRouteConfig): AiEndpointConfig {
   return {
     baseUrl: plugin.baseUrl,
@@ -146,6 +158,7 @@ export interface PluginRoutingCandidateSummary {
     routes: Array<{
       id: string;
       name: string;
+      model: string;
       intentPrompt: string;
     }>;
   };
@@ -286,7 +299,8 @@ export class AiClient {
     contextMessages: SessionMessage[],
     botNames: string[],
     persona: PersonaConfig,
-    service: AiEndpointConfig
+    service: AiEndpointConfig,
+    contextSummary?: string
   ): Promise<{ score: number; isContextuallyRelevant: boolean; reply: string }> {
     const raw = await this.createChatCompletion(
       service,
@@ -317,7 +331,7 @@ export class AiClient {
             `消息类型: ${message.chatType}`,
             `发送者: ${message.senderNickname || message.userId}`,
             `当前消息: ${message.cleanText || '(空文本)'}`,
-            `最近上下文:\n${formatContextMessages(contextMessages)}`
+            `上下文:\n${formatPromptContext(contextMessages, contextSummary)}`
           ].join('\n')
         }
       ],
@@ -340,7 +354,8 @@ export class AiClient {
     persona: PersonaConfig,
     reason: string,
     service: AiEndpointConfig,
-    toolContext?: string
+    toolContext?: string,
+    contextSummary?: string
   ): Promise<string> {
     const raw = await this.createChatCompletion(
       service,
@@ -369,7 +384,7 @@ export class AiClient {
             `消息类型: ${message.chatType}`,
             `发送者: ${message.senderNickname || message.userId}`,
             `当前消息: ${message.cleanText || '(空文本)'}`,
-            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            `上下文:\n${formatPromptContext(contextMessages, contextSummary)}`,
             toolContext ? `工具结果:\n${toolContext}` : '工具结果: 无'
           ].join('\n')
         }
@@ -392,7 +407,8 @@ export class AiClient {
     route: Ds2ApiRouteConfig,
     options?: {
       fallbackContext?: string;
-    }
+    },
+    contextSummary?: string
   ): Promise<string> {
     const raw = await this.createChatCompletion(
       createDs2ApiService(plugin, route),
@@ -419,7 +435,7 @@ export class AiClient {
             `当前消息: ${message.cleanText || '(空文本)'}`,
             `消息图片数量: ${message.imageUrls.length}`,
             message.imageUrls.length > 0 ? `消息图片链接:\n${message.imageUrls.join('\n')}` : '消息图片链接: 无',
-            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            `上下文:\n${formatPromptContext(contextMessages, contextSummary)}`,
             options?.fallbackContext ? `回退上下文:\n${options.fallbackContext}` : '回退上下文: 无'
           ].join('\n')
         }
@@ -471,7 +487,8 @@ export class AiClient {
     message: BotMessage,
     contextMessages: SessionMessage[],
     candidates: PluginRoutingCandidateSummary,
-    service: AiEndpointConfig
+    service: AiEndpointConfig,
+    contextSummary?: string
   ): Promise<PluginRoutingDecision> {
     const raw = await this.createChatCompletion(
       service,
@@ -484,7 +501,10 @@ export class AiClient {
             '1. 天气、空气质量、预警、日出日落等实时天气请求走 qweather。',
             '2. 图片/视频/语音/新闻/图片分析等外部接口能力走 qingmeng。',
             '3. 其他普通问答、闲聊、技术问题、复杂分析默认走 ds2api，并为 ds2apiRouteId 选择最合适的路由。',
-            '4. 只有在当前消息明显不适合任何插件，且 ds2api 也未启用时，才返回 none。',
+            '4. 如果用户问题明显依赖最新信息、实时信息、新闻、头条、热搜、最近动态或联网检索，优先选择带 search 能力的 ds2api 路由。',
+            '5. 如果消息带图片，或用户要求看图、识图、解释图片，优先选择 vision 路由。',
+            '6. 如果是复杂分析、多步骤推理、技术排查、决策比较，优先选择 reasoner 路由。',
+            '7. 只有在当前消息明显不适合任何插件，且 ds2api 也未启用时，才返回 none。',
             '如果 target=ds2api，必须返回一个可用的 ds2apiRouteId。',
             '你不生成最终回复，只输出 JSON。',
             '格式固定为 {"target":"ds2api","confidence":0.9,"reason":"...","ds2apiRouteId":"chat"}。'
@@ -496,7 +516,7 @@ export class AiClient {
             `当前消息: ${message.cleanText || '(空文本)'}`,
             `消息图片数量: ${message.imageUrls.length}`,
             message.imageUrls.length > 0 ? `消息图片链接:\n${message.imageUrls.join('\n')}` : '消息图片链接: 无',
-            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            `上下文:\n${formatPromptContext(contextMessages, contextSummary)}`,
             `可用插件摘要:\n${JSON.stringify(candidates, null, 2)}`
           ].join('\n')
         }
@@ -514,7 +534,8 @@ export class AiClient {
     message: BotMessage,
     contextMessages: SessionMessage[],
     plugin: QingmengPluginConfig,
-    service: AiEndpointConfig
+    service: AiEndpointConfig,
+    contextSummary?: string
   ): Promise<{ shouldUsePlugin: boolean; endpointId: string | null; confidence: number; params: Record<string, string> }> {
     const enabledEndpoints = plugin.endpoints
       .filter((endpoint) => endpoint.enabled)
@@ -564,7 +585,7 @@ export class AiClient {
           content: [
             `当前消息: ${message.cleanText || '(空文本)'}`,
             `消息图片数量: ${message.imageUrls.length}`,
-            `最近上下文:\n${formatContextMessages(contextMessages)}`,
+            `上下文:\n${formatPromptContext(contextMessages, contextSummary)}`,
             `可用接口:\n${JSON.stringify(enabledEndpoints, null, 2)}`
           ].join('\n')
         }

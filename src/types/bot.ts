@@ -179,6 +179,7 @@ export interface ChatSession {
   messages: SessionMessage[];
   handledMessageIds: string[];
   lastReplyAt?: number;
+  contextSummary?: string;
 }
 
 /**

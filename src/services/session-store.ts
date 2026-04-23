@@ -13,6 +13,57 @@ import { ensureDataDir, loadSessionsData, sessionsPath } from './data-repository
 
 const MAX_SESSION_MESSAGES = 60;
 const MAX_HANDLED_MESSAGE_IDS = 200;
+const SUMMARY_SOURCE_WINDOW = 18;
+const SUMMARY_ITEM_LIMIT = 6;
+const SUMMARY_CONTENT_LIMIT = 48;
+const LOW_INFORMATION_SUMMARY_PATTERNS = [
+  /^(哈)+[哈呵嘿]*[~!！。.?？]*$/i,
+  /^(嗯+|哦+|啊+|欸+)[~!！。.?？]*$/i,
+  /^(收到|好的|知道了|懂了|明白了|ok|okk|yes)[~!！。.?？]*$/i,
+  /^(6+|？+|!+|。+|在吗)[~!！。.?？]*$/i
+];
+
+function normalizeSummaryContent(content: string): string {
+  return content.replace(/\s+/g, ' ').trim();
+}
+
+function shouldSkipSummaryMessage(message: SessionMessage): boolean {
+  if (message.role === 'system') {
+    return true;
+  }
+
+  const compact = normalizeSummaryContent(message.content);
+  if (!compact) {
+    return true;
+  }
+
+  if (compact.length <= 12 && LOW_INFORMATION_SUMMARY_PATTERNS.some((pattern) => pattern.test(compact))) {
+    return true;
+  }
+
+  return false;
+}
+
+function summarizeSessionMessages(messages: SessionMessage[]): string {
+  const recentMessages = messages.slice(-SUMMARY_SOURCE_WINDOW);
+  const lines = recentMessages
+    .filter((message) => !shouldSkipSummaryMessage(message))
+    .slice(-SUMMARY_ITEM_LIMIT)
+    .map((message) => {
+      const roleLabel = message.role === 'assistant'
+        ? '机器人'
+        : message.role === 'tool'
+          ? '工具'
+          : '用户';
+      const normalized = normalizeSummaryContent(message.content);
+      const clipped = normalized.length > SUMMARY_CONTENT_LIMIT
+        ? `${normalized.slice(0, SUMMARY_CONTENT_LIMIT)}...`
+        : normalized;
+      return `${roleLabel}: ${clipped}`;
+    });
+
+  return lines.join('\n');
+}
 
 export class SessionStore {
   private data: SessionsData | null = null;
@@ -87,7 +138,8 @@ export class SessionStore {
     return {
       messages: [...session.messages],
       handledMessageIds: [...session.handledMessageIds],
-      lastReplyAt: session.lastReplyAt
+      lastReplyAt: session.lastReplyAt,
+      contextSummary: session.contextSummary ?? summarizeSessionMessages(session.messages)
     };
   }
 
@@ -122,6 +174,7 @@ export class SessionStore {
 
       session.messages.push(sessionMessage);
       session.messages = session.messages.slice(-MAX_SESSION_MESSAGES);
+      session.contextSummary = summarizeSessionMessages(session.messages);
 
       if (!session.handledMessageIds.includes(message.messageId)) {
         session.handledMessageIds.push(message.messageId);
@@ -152,6 +205,7 @@ export class SessionStore {
 
       session.messages.push(sessionMessage);
       session.messages = session.messages.slice(-MAX_SESSION_MESSAGES);
+      session.contextSummary = summarizeSessionMessages(session.messages);
       session.lastReplyAt = time;
     });
   }

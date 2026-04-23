@@ -286,6 +286,26 @@ function detectQingmengFallbackGroup(text: string, hasImageAttachment: boolean):
   return null;
 }
 
+function looksLikeImageAnalysisRequest(text: string, hasImageAttachment: boolean): boolean {
+  if (!hasImageAttachment) {
+    return false;
+  }
+
+  const normalized = normalizeIntentText(text);
+  return [
+    '这图',
+    '这张图',
+    '这图片',
+    '看图',
+    '识图',
+    '分析图片',
+    '分析这图',
+    '解释图片',
+    '图里',
+    '啥意思'
+  ].some((keyword) => normalized.includes(keyword));
+}
+
 function pickRandomQingmengEndpoint(
   endpoints: QingmengEndpointConfig[],
   group: QingmengEndpointConfig['group']
@@ -342,16 +362,107 @@ function buildPluginRoutingCandidates(
         .map((route) => ({
           id: route.id,
           name: route.name,
+          model: route.model,
           intentPrompt: route.intentPrompt
         }))
     }
   };
 }
 
-function selectDs2ApiRoute(plugin: Ds2ApiPluginConfig, routeId?: string | null) {
-  return plugin.routes.find((route) => route.id === routeId && route.enabled)
-    ?? plugin.routes.find((route) => route.enabled)
-    ?? null;
+function looksLikeSearchRequired(text: string): boolean {
+  const normalized = normalizeIntentText(text);
+  return [
+    '最新',
+    '最近',
+    '今日',
+    '今天',
+    '实时',
+    '当前',
+    '新闻',
+    '头条',
+    '热搜',
+    '联网',
+    '搜索',
+    '查一下最新',
+    '最近发生'
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function looksLikeReasoningRequired(text: string): boolean {
+  const normalized = normalizeIntentText(text);
+  return [
+    '分析',
+    '推理',
+    '判断',
+    '比较',
+    '方案',
+    '排查',
+    '原因',
+    '为什么',
+    '怎么选',
+    '怎么做',
+    '决策',
+    '架构',
+    '设计',
+    '实现'
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function selectDs2ApiRoute(
+  plugin: Ds2ApiPluginConfig,
+  routeId?: string | null,
+  options?: {
+    preferSearch?: boolean;
+    preferVision?: boolean;
+    preferReasoning?: boolean;
+  }
+) {
+  const enabledRoutes = plugin.routes.filter((route) => route.enabled);
+  if (enabledRoutes.length === 0) {
+    return null;
+  }
+
+  const exactRoute = enabledRoutes.find((route) => route.id === routeId);
+  if (exactRoute) {
+    return exactRoute;
+  }
+
+  const preferSearch = options?.preferSearch ?? false;
+  const preferVision = options?.preferVision ?? false;
+  const preferReasoning = options?.preferReasoning ?? false;
+
+  const scoredRoutes = enabledRoutes
+    .map((route) => {
+      const model = route.model.toLowerCase();
+      let score = 0;
+
+      if (preferSearch) {
+        score += model.includes('search') ? 6 : -2;
+      } else if (model.includes('search')) {
+        score -= 1;
+      }
+
+      if (preferVision) {
+        score += model.includes('vision') ? 5 : -2;
+      } else if (model.includes('vision')) {
+        score -= 1;
+      }
+
+      if (preferReasoning) {
+        score += model.includes('reasoner') ? 4 : -1;
+      } else if (model.includes('reasoner')) {
+        score -= 0.5;
+      }
+
+      if (model.includes('expert')) {
+        score += preferReasoning || preferSearch ? 1 : 0;
+      }
+
+      return { route, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return scoredRoutes[0]?.route ?? enabledRoutes[0];
 }
 
 export class ToolRouter {
@@ -361,11 +472,44 @@ export class ToolRouter {
     message: BotMessage,
     plugins: PluginConfig[],
     contextMessages: SessionMessage[],
-    persona: PersonaConfig
+    persona: PersonaConfig,
+    contextSummary?: string
   ): Promise<ToolResolution> {
     const qweatherPlugin = findQWeatherPlugin(plugins);
     const ds2apiPlugin = findDs2ApiPlugin(plugins);
     const qingmengPlugin = findQingmengPlugin(plugins);
+    const ds2apiPreferences = {
+      preferSearch: looksLikeSearchRequired(message.cleanText),
+      preferVision: message.imageUrls.length > 0,
+      preferReasoning: looksLikeReasoningRequired(message.cleanText)
+    };
+
+    // 明显的天气请求直接旁路到天气插件，避免再消耗一次主路由模型调用。
+    if (qweatherPlugin?.enabled && qweatherPlugin.apiKey && looksLikeWeatherRequest(message.cleanText)) {
+      return this.resolveWeather(message, qweatherPlugin);
+    }
+
+    // 倾梦存在强信号时也直接进入插件，避免主路由模型重复判断。
+    if (qingmengPlugin?.enabled && qingmengPlugin.ckey) {
+      const enabledEndpoints = qingmengPlugin.endpoints.filter((endpoint) => endpoint.enabled);
+      const hasAliasMatch = Boolean(matchQingmengEndpointByAlias(message.cleanText, enabledEndpoints));
+      const hasFallbackGroup = Boolean(detectQingmengFallbackGroup(message.cleanText, message.imageUrls.length > 0));
+      const hasImageAnalysisSignal =
+        enabledEndpoints.some((endpoint) => endpoint.group === 'analysis') &&
+        looksLikeImageAnalysisRequest(message.cleanText, message.imageUrls.length > 0);
+
+      if (hasAliasMatch || hasFallbackGroup || hasImageAnalysisSignal) {
+        return this.resolveQingmeng(
+          message,
+          plugins,
+          contextMessages,
+          persona,
+          qingmengPlugin,
+          contextSummary,
+          ds2apiPreferences
+        );
+      }
+    }
 
     const routingCandidates = buildPluginRoutingCandidates(qweatherPlugin, qingmengPlugin, ds2apiPlugin);
     if (!routingCandidates.qweather.enabled && !routingCandidates.qingmeng.enabled && !routingCandidates.ds2api.enabled) {
@@ -382,7 +526,8 @@ export class ToolRouter {
           apiKey: config.AI_API_KEY,
           model: config.AI_MODEL,
           timeoutMs: config.AI_TIMEOUT_MS
-        }
+        },
+        contextSummary
       );
 
       if (routingDecision.target === 'qweather') {
@@ -406,7 +551,15 @@ export class ToolRouter {
           };
         }
 
-        return this.resolveQingmeng(message, plugins, contextMessages, persona, qingmengPlugin);
+        return this.resolveQingmeng(
+          message,
+          plugins,
+          contextMessages,
+          persona,
+          qingmengPlugin,
+          contextSummary,
+          ds2apiPreferences
+        );
       }
 
       if (routingDecision.target === 'ds2api') {
@@ -414,7 +567,7 @@ export class ToolRouter {
           return { handled: false };
         }
 
-        const route = selectDs2ApiRoute(ds2apiPlugin, routingDecision.ds2apiRouteId);
+        const route = selectDs2ApiRoute(ds2apiPlugin, routingDecision.ds2apiRouteId, ds2apiPreferences);
         if (!route) {
           return {
             handled: true,
@@ -423,9 +576,17 @@ export class ToolRouter {
           };
         }
 
-        const reply = await this.aiClient.generateRoutedReply(message, contextMessages, persona, ds2apiPlugin, route, {
-          fallbackContext: `主路由原因: ${routingDecision.reason}`
-        });
+        const reply = await this.aiClient.generateRoutedReply(
+          message,
+          contextMessages,
+          persona,
+          ds2apiPlugin,
+          route,
+          {
+            fallbackContext: `主路由原因: ${routingDecision.reason}`
+          },
+          contextSummary
+        );
         return {
           handled: true,
           reason: 'tool_ds2api',
@@ -434,11 +595,19 @@ export class ToolRouter {
       }
 
       if (routingCandidates.ds2api.enabled && ds2apiPlugin?.enabled && ds2apiPlugin.apiKey) {
-        const route = selectDs2ApiRoute(ds2apiPlugin, routingDecision.ds2apiRouteId);
+        const route = selectDs2ApiRoute(ds2apiPlugin, routingDecision.ds2apiRouteId, ds2apiPreferences);
         if (route) {
-          const reply = await this.aiClient.generateRoutedReply(message, contextMessages, persona, ds2apiPlugin, route, {
-            fallbackContext: `主路由原因: ${routingDecision.reason}`
-          });
+          const reply = await this.aiClient.generateRoutedReply(
+            message,
+            contextMessages,
+            persona,
+            ds2apiPlugin,
+            route,
+            {
+              fallbackContext: `主路由原因: ${routingDecision.reason}`
+            },
+            contextSummary
+          );
           return {
             handled: true,
             reason: 'tool_ds2api',
@@ -454,7 +623,7 @@ export class ToolRouter {
       const fallbackDs2ApiPlugin = findFallbackDs2ApiPlugin(plugins);
       if (fallbackDs2ApiPlugin) {
         try {
-          const route = selectDs2ApiRoute(fallbackDs2ApiPlugin);
+          const route = selectDs2ApiRoute(fallbackDs2ApiPlugin, null, ds2apiPreferences);
           if (route) {
             const reply = await this.aiClient.generateRoutedReply(
               message,
@@ -467,7 +636,8 @@ export class ToolRouter {
                   `主路由失败: ${error instanceof Error ? error.message : String(error)}`,
                   '这是主路由失败后的兜底回复。'
                 ].join('\n')
-              }
+              },
+              contextSummary
             );
             return {
               handled: true,
@@ -491,7 +661,13 @@ export class ToolRouter {
     plugins: PluginConfig[],
     contextMessages: SessionMessage[],
     persona: PersonaConfig,
-    qingmengPlugin: QingmengPluginConfig
+    qingmengPlugin: QingmengPluginConfig,
+    contextSummary?: string,
+    ds2apiPreferences?: {
+      preferSearch?: boolean;
+      preferVision?: boolean;
+      preferReasoning?: boolean;
+    }
   ): Promise<ToolResolution> {
     try {
       const enabledEndpoints = qingmengPlugin.endpoints.filter((endpoint) => endpoint.enabled);
@@ -525,13 +701,14 @@ export class ToolRouter {
             apiKey: config.AI_API_KEY,
             model: config.AI_MODEL,
             timeoutMs: config.AI_TIMEOUT_MS
-          }
+          },
+          contextSummary
         );
 
         if (!classification.shouldUsePlugin || !classification.endpointId) {
           const fallbackDs2ApiPlugin = findFallbackDs2ApiPlugin(plugins);
           if (fallbackDs2ApiPlugin) {
-            const route = selectDs2ApiRoute(fallbackDs2ApiPlugin);
+            const route = selectDs2ApiRoute(fallbackDs2ApiPlugin, null, ds2apiPreferences);
             if (route) {
               const reply = await this.aiClient.generateRoutedReply(
                 message,
@@ -540,8 +717,9 @@ export class ToolRouter {
                 fallbackDs2ApiPlugin,
                 route,
                 {
-                  fallbackContext: '倾梦已被主路由命中，但没有选出具体接口，回退到 DS2API。'
-                }
+                fallbackContext: '倾梦已被主路由命中，但没有选出具体接口，回退到 DS2API。'
+                },
+                contextSummary
               );
               return {
                 handled: true,
@@ -585,7 +763,7 @@ export class ToolRouter {
       const fallbackDs2ApiPlugin = findFallbackDs2ApiPlugin(plugins);
       if (fallbackDs2ApiPlugin) {
         try {
-          const route = selectDs2ApiRoute(fallbackDs2ApiPlugin);
+          const route = selectDs2ApiRoute(fallbackDs2ApiPlugin, null, ds2apiPreferences);
           if (!route) {
             throw new Error('DS2API 没有可用路由');
           }
@@ -603,7 +781,8 @@ export class ToolRouter {
                 '这是插件失败后的兜底回复。',
                 '如果你无法直接理解图片内容，不要假装看懂图片，直接说明当前没有成功读取图片内容，并引导用户稍后重试或补充文字描述。'
               ].join('\n')
-            }
+            },
+            contextSummary
           );
 
           logger.warn(

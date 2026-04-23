@@ -29,6 +29,7 @@ import { ToolRouter } from './tool-router.js';
 
 // 群聊上下文窗口按需求固定在 10~20 条范围内，并复用现有 MAX_CONTEXT_MESSAGES 配置。
 const GROUP_CONTEXT_WINDOW = Math.min(Math.max(config.MAX_CONTEXT_MESSAGES, 10), 20);
+const MODEL_CONTEXT_WINDOW = 4;
 const GROUP_REPLY_SCORE_THRESHOLD = 0.6;
 const LOW_INFORMATION_REPLY_PATTERNS = [
   /^(哈)+[哈呵嘿]*[~!！。.?？]*$/i,
@@ -192,6 +193,7 @@ export class ReplyEngine {
     }
 
     const contextMessages = getRecentContext(session.messages, GROUP_CONTEXT_WINDOW);
+    const promptContextMessages = getRecentContext(session.messages, MODEL_CONTEXT_WINDOW);
     const recentReplyAt = session.lastReplyAt ?? 0;
     const now = message.time;
     const isNameMention = message.chatType === 'group' && mentionsBotName(message.cleanText, rules.botNames);
@@ -240,7 +242,7 @@ export class ReplyEngine {
         // 群聊非显式触发时，把“是否回复”和“普通回复草稿”合并成一次调用。
         const decision = await this.aiClient.scoreAndDraftGroupReply(
           message,
-          contextMessages,
+          promptContextMessages,
           rules.botNames,
           persona,
           {
@@ -248,7 +250,8 @@ export class ReplyEngine {
             apiKey: config.AI_API_KEY,
             model: config.AI_MODEL,
             timeoutMs: config.AI_TIMEOUT_MS
-          }
+          },
+          session.contextSummary
         );
         score = clampScore(decision.score);
 
@@ -286,14 +289,14 @@ export class ReplyEngine {
      * 可以避免再走一次读盘，同时让 prompt 明确包含“当前正在回答哪条消息”。
      */
     const generationContext = getRecentContext(
-      [...contextMessages, { role: 'user', content: message.cleanText, time: message.time }],
-      GROUP_CONTEXT_WINDOW
+      [...promptContextMessages, { role: 'user', content: message.cleanText, time: message.time }],
+      MODEL_CONTEXT_WINDOW + 1
     );
 
     try {
       // 工具调用放在“确定要回复”之后，而不是每条消息都先查天气，
       // 这样可以复用现有的触发/冷却/去重机制，避免群聊里无意义地消耗外部 API 配额。
-      const toolResolution = await this.toolRouter.resolve(message, plugins, generationContext, persona);
+      const toolResolution = await this.toolRouter.resolve(message, plugins, generationContext, persona, session.contextSummary);
 
       if (toolResolution.handled && toolResolution.reply && toolResolution.reason) {
         await this.sessionStore.recordAssistantReply(chatKey, toolResolution.reply, now, toolResolution.reason);
@@ -321,7 +324,8 @@ export class ReplyEngine {
               model: config.AI_MODEL,
               timeoutMs: config.AI_TIMEOUT_MS
             },
-            toolResolution.toolContext
+            toolResolution.toolContext,
+            session.contextSummary
           );
 
       if (message.chatType === 'group' && shouldDiscardGeneratedGroupReply(reply)) {
