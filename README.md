@@ -282,3 +282,57 @@ pnpm admin:build
 ```env
 VITE_ADMIN_API_BASE_URL=http://127.0.0.1:3100
 ```
+
+生产部署如果通过 `docker/docker-compose.yml` 的 `admin-web` 访问管理端，前端默认使用同域 `/admin/*` API，不需要设置 `VITE_ADMIN_API_BASE_URL`。
+
+## Docker Compose 部署
+
+统一部署文件位于 `docker/docker-compose.yml`，包含 NapCat、DS2API、机器人后端、管理端静态服务。
+
+部署前在本地或 CI 构建产物：
+
+```bash
+pnpm build
+pnpm admin:build
+```
+
+服务器只需要运行打包后的目录，不在服务器上构建：
+
+- `dist/`：机器人后端 bundle
+- `admin/dist/`：管理端静态文件
+- `data/`：运行数据，作为持久化目录保留
+- `docker/`：Compose、NapCat、DS2API 配置
+
+启动：
+
+```bash
+cd docker
+docker compose up -d
+```
+
+管理端默认暴露在 `http://服务器:8080`，可通过 `ADMIN_WEB_HOST_PORT` 调整。
+
+在 Docker 网络内，DS2API 插件地址建议配置为：
+
+```text
+http://ds2api:5001/v1
+```
+
+### DS2API 自动更新
+
+默认推荐固定 `DS2API_IMAGE=ghcr.io/cjackhwang/ds2api:v3.6.1`，由 Renovate 自动提交升级 PR，合并后再部署。
+
+如果要让服务器无人值守自动拉取 DS2API 新镜像，可以把 `docker/.env` 中的 `DS2API_IMAGE` 改为：
+
+```env
+DS2API_IMAGE=ghcr.io/cjackhwang/ds2api:latest
+```
+
+然后启用 Watchtower profile：
+
+```bash
+cd docker
+docker compose --profile auto-update up -d
+```
+
+这个模式会自动更新带有 Watchtower 标签的 `ds2api` 容器；更省心，但版本变化不可通过 PR 预审。

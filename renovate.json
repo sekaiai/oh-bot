@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update DS2API image references hidden behind Compose variable defaults",
+      "managerFilePatterns": [
+        "/^docker\\/docker-compose\\.yml$/",
+        "/^docker\\/ds2api\\/docker-compose\\.yml$/",
+        "/^docker\\/\\.env\\.example$/"
+      ],
+      "matchStrings": [
+        "DS2API_IMAGE(?:=|:-)(?<depName>ghcr\\.io\\/cjackhwang\\/ds2api):(?<currentValue>[^}\\n\\s]+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group Docker image updates",
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "docker images"
+    }
+  ]
+}

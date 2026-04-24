@@ -7,7 +7,13 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     host: '0.0.0.0',
-    port: 10032
+    port: 10032,
+    proxy: {
+      '/admin': {
+        target: 'http://127.0.0.1:3100',
+        changeOrigin: true
+      }
+    }
   },
   build: {
     outDir: path.resolve(__dirname, 'dist'),

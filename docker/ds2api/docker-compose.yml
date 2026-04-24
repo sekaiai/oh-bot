@@ -1,6 +1,6 @@
 services:
   ds2api:
-    image: ghcr.io/cjackhwang/ds2api:latest
+    image: ${DS2API_IMAGE:-ghcr.io/cjackhwang/ds2api:v3.6.1}
     container_name: ds2api
     restart: always
     env_file:
@@ -14,3 +14,5 @@ services:
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
       - DS2API_ADMIN_KEY=${DS2API_ADMIN_KEY:-ds2api}
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
