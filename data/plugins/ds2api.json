@@ -1,5 +1,5 @@
 {
-  "baseUrl": "http://127.0.0.1:6011/v1",
+  "baseUrl": "http://ds2api:5001/v1",
   "apiKey": "sk-27f619f57fa14190986d38ad4d112a81",
   "model": "gpt-4o",
   "timeoutMs": 30000,

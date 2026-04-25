@@ -10,7 +10,6 @@ import { config } from '../config/index.js';
 import type {
   Ds2ApiPluginConfig,
   Ds2ApiRouteConfig,
-  PersonaRegistry,
   PluginConfig,
   PluginKind,
   ScheduledTask,
@@ -23,7 +22,6 @@ import type {
 
 const dataDir = path.resolve(process.cwd(), config.DATA_DIR);
 const rulesPath = path.join(dataDir, 'rules.json');
-const personasPath = path.join(dataDir, 'personas.json');
 const sessionsPath = path.join(dataDir, 'sessions.json');
 const tasksPath = path.join(dataDir, 'tasks.json');
 const runtimeSettingsPath = path.join(dataDir, 'runtime-settings.json');
@@ -84,60 +82,6 @@ export async function loadRules(): Promise<RuleConfig> {
 
 export async function saveRules(rules: RuleConfig): Promise<void> {
   await writeJsonFile(rulesPath, rules);
-}
-
-/**
- * 读取 persona 配置。
- *
- * 即使 `personas.json` 不存在，也保证返回一套最小可用的默认 persona，
- * 避免回复链路因为缺配置而整体不可用。
- */
-export async function loadPersonas(): Promise<PersonaRegistry> {
-  return readJsonFile<PersonaRegistry>(personasPath, {
-    defaultPersonaId: 'assistant',
-    personas: [
-      {
-        id: 'assistant',
-        name: '稳健助手',
-        systemPrompt: '你是一个克制、可靠、直接的 QQ 助手。优先回答用户真正的问题，先给结论，再补必要说明。能一句说清就不说两句。不给无信息量寒暄，不接梗，不卖萌，不用油腻口头禅。群聊默认 1 到 2 句，只有在用户明确追问时再展开。',
-        temperature: 0.3,
-        maxTokens: 480
-      },
-      {
-        id: 'brief',
-        name: '极简短答',
-        systemPrompt: '你是一个极简回复助手。只输出最关键的结论、答案或下一步动作。除非必要，不解释背景，不复述问题，不寒暄。适合群聊快节奏场景，回答要短、准、干净。',
-        temperature: 0.2,
-        maxTokens: 220
-      },
-      {
-        id: 'analyst',
-        name: '理性分析',
-        systemPrompt: '你是一个冷静、严谨的分析型助手。先识别问题核心，再给结论、依据和建议。遇到比较、判断、取舍、复盘、总结类请求时，优先给清晰结构。避免情绪化表达，避免空泛套话。',
-        temperature: 0.2,
-        maxTokens: 900
-      },
-      {
-        id: 'coder',
-        name: '技术助手',
-        systemPrompt: '你是一个面向开发和排障的技术助手。回答要准确、具体、可执行；优先给定位思路、修改建议、命令、代码或检查项。不要讲空话，不要过度铺垫，不要为了显得热情而堆废话。',
-        temperature: 0.15,
-        maxTokens: 1200
-      },
-      {
-        id: 'helper',
-        name: '生活助理',
-        systemPrompt: '你是一个务实的生活助理。适合处理日常建议、流程说明、整理总结、文案润色、信息归纳。优先提供步骤、注意事项和可执行建议。语气平实自然，不端着，也不油腻。',
-        temperature: 0.35,
-        maxTokens: 700
-      }
-    ],
-    bindings: {}
-  });
-}
-
-export async function savePersonas(personas: PersonaRegistry): Promise<void> {
-  await writeJsonFile(personasPath, personas);
 }
 
 function getPluginFilePath(id: string): string {
@@ -276,7 +220,7 @@ function getDefaultDs2ApiPlugin(): Ds2ApiPluginConfig {
     kind: 'ds2api',
     name: 'DS2API',
     enabled: false,
-    baseUrl: 'http://127.0.0.1:6011/v1',
+    baseUrl: 'http://ds2api:5001/v1',
     apiKey: '',
     timeoutMs: config.AI_TIMEOUT_MS,
     routes: getDefaultDs2ApiRoutes()
@@ -1018,4 +962,4 @@ export async function saveScheduledTasks(tasks: ScheduledTask[]): Promise<void> 
 }
 
 /** 会话状态文件路径，供 store 层统一写回。 */
-export { sessionsPath, tasksPath, rulesPath, personasPath, runtimeSettingsPath, pluginsDir };
+export { sessionsPath, tasksPath, rulesPath, runtimeSettingsPath, pluginsDir };
