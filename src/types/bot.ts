@@ -147,24 +147,11 @@ export interface SessionMessage {
   reason?: ReplyReason;
 }
 
-/**
- * 人设配置。
- *
- * 这里的字段设计明显面向后续 LLM 接入；
- * 如果继续开发，应尽量在配置层扩展，而不是把 prompt 参数硬编码进业务逻辑。
- */
-export interface PersonaConfig {
-  id: string;
+export interface ReplyProfile {
   name: string;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
-}
-
-export interface PersonaRegistry {
-  defaultPersonaId: string;
-  personas: PersonaConfig[];
-  bindings: Record<string, string>;
 }
 
 /**

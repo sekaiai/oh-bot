@@ -13,8 +13,8 @@ import type {
   BotMessage,
   Ds2ApiPluginConfig,
   Ds2ApiRouteConfig,
-  PersonaConfig,
   QingmengPluginConfig,
+  ReplyProfile,
   SessionMessage
 } from '../types/bot.js';
 import { withRetry } from '../utils/retry.js';
@@ -51,6 +51,19 @@ const decisionWithDraftSchema = z.object({
 
 const replySchema = z.object({
   reply: z.string().min(1)
+});
+
+const affectionDeltaSchema = z.object({
+  libidoOtherDelta: z.number().default(0),
+  aggressionOtherDelta: z.number().default(0),
+  libidoSelfDelta: z.number().default(0),
+  aggressionSelfDelta: z.number().default(0),
+  affectionDelta: z.number().default(0),
+  baseLibidoOtherDelta: z.number().default(0),
+  baseAggressionOtherDelta: z.number().default(0),
+  baseLibidoSelfDelta: z.number().default(0),
+  baseAggressionSelfDelta: z.number().default(0),
+  intensity: z.number().default(1)
 });
 
 const qingmengIntentSchema = z.object({
@@ -232,6 +245,8 @@ export interface PluginRoutingDecision {
   ds2apiRouteId: string | null;
 }
 
+export type AffectionDeltas = z.infer<typeof affectionDeltaSchema>;
+
 export class AiClient {
   async testChatCompletion(
     service: AiEndpointConfig,
@@ -359,7 +374,7 @@ export class AiClient {
     message: BotMessage,
     contextMessages: SessionMessage[],
     botNames: string[],
-    persona: PersonaConfig,
+    profile: ReplyProfile,
     service: AiEndpointConfig,
     contextSummary?: string
   ): Promise<{ score: number; isContextuallyRelevant: boolean; reply: string }> {
@@ -369,7 +384,7 @@ export class AiClient {
         {
           role: 'system',
           content: [
-            persona.systemPrompt,
+            profile.systemPrompt,
             '你是 QQ 群聊机器人“是否应该回复”的决策器，同时负责在值得回复时起草最终回复。',
             '你必须根据当前消息和最近上下文，给出 score(0~1)、isContextuallyRelevant(boolean) 和 reply(string)。',
             '判断标准以“机器人回复后是否能提供明显新增信息、结论、建议或执行帮助”为核心。',
@@ -398,7 +413,7 @@ export class AiClient {
       ],
       {
         temperature: 0.1,
-        maxTokens: Math.min(320, persona.maxTokens)
+        maxTokens: Math.min(320, profile.maxTokens)
       }
     );
 
@@ -412,7 +427,7 @@ export class AiClient {
   async generateReply(
     message: BotMessage,
     contextMessages: SessionMessage[],
-    persona: PersonaConfig,
+    profile: ReplyProfile,
     reason: string,
     service: AiEndpointConfig,
     toolContext?: string,
@@ -424,7 +439,7 @@ export class AiClient {
         {
           role: 'system',
           content: [
-            persona.systemPrompt,
+            profile.systemPrompt,
             '你是 QQ 机器人消息回复引擎。',
             '你必须直接生成适合发送给用户的自然中文回复。',
             '回复要求：简洁、自然、克制，优先提供结论、事实、建议或下一步动作。',
@@ -451,8 +466,8 @@ export class AiClient {
         }
       ],
       {
-        temperature: getReplyTemperature(message.chatType, persona.temperature),
-        maxTokens: persona.maxTokens
+        temperature: getReplyTemperature(message.chatType, profile.temperature),
+        maxTokens: profile.maxTokens
       }
     );
 
@@ -463,7 +478,7 @@ export class AiClient {
   async generateRoutedReply(
     message: BotMessage,
     contextMessages: SessionMessage[],
-    persona: PersonaConfig,
+    profile: ReplyProfile,
     plugin: Ds2ApiPluginConfig,
     route: Ds2ApiRouteConfig,
     options?: {
@@ -477,7 +492,7 @@ export class AiClient {
         {
           role: 'system',
           content: [
-            persona.systemPrompt,
+            profile.systemPrompt,
             route.systemPrompt,
             '你是被路由调用的专用 QQ 助手。',
             '当消息命中你的路由条件时，直接给出最终回复。',
@@ -499,6 +514,40 @@ export class AiClient {
 
     const parsed = replySchema.parse(JSON.parse(extractJsonPayload(raw)));
     return parsed.reply.trim();
+  }
+
+  async analyzeAffectionDeltas(service: AiEndpointConfig, prompt: string): Promise<AffectionDeltas> {
+    const raw = await this.createChatCompletion(
+      service,
+      [
+        {
+          role: 'system',
+          content: '你是情绪数值调节器，只输出 JSON，不添加解释。字段名必须使用英文 camelCase。'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      {
+        temperature: 0.1,
+        maxTokens: 260
+      }
+    );
+
+    const parsed = affectionDeltaSchema.parse(JSON.parse(extractJsonPayload(raw)));
+    return {
+      libidoOtherDelta: Math.max(-2, Math.min(2, parsed.libidoOtherDelta)),
+      aggressionOtherDelta: Math.max(-2, Math.min(2, parsed.aggressionOtherDelta)),
+      libidoSelfDelta: Math.max(-2, Math.min(2, parsed.libidoSelfDelta)),
+      aggressionSelfDelta: Math.max(-2, Math.min(2, parsed.aggressionSelfDelta)),
+      affectionDelta: Math.max(-0.5, Math.min(0.5, parsed.affectionDelta)),
+      baseLibidoOtherDelta: Math.max(-0.2, Math.min(0.2, parsed.baseLibidoOtherDelta)),
+      baseAggressionOtherDelta: Math.max(-0.2, Math.min(0.2, parsed.baseAggressionOtherDelta)),
+      baseLibidoSelfDelta: Math.max(-0.2, Math.min(0.2, parsed.baseLibidoSelfDelta)),
+      baseAggressionSelfDelta: Math.max(-0.2, Math.min(0.2, parsed.baseAggressionSelfDelta)),
+      intensity: Math.max(0.5, Math.min(2, parsed.intensity))
+    };
   }
 
   async generateScheduledTaskText(

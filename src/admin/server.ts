@@ -1,12 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import {
-  loadPersonas,
   loadPluginConfig,
   loadPluginConfigs,
   loadRules,
   loadScheduledTasks,
   loadSessionsData,
-  savePersonas,
   savePluginConfig,
   saveRules,
   saveScheduledTasks,
@@ -15,7 +13,6 @@ import { config } from '../config/index.js';
 import type {
   ChatSession,
   Ds2ApiPluginConfig,
-  PersonaRegistry,
   PluginConfig,
   PluginKind,
   QingmengPluginConfig,
@@ -39,7 +36,6 @@ import {
 } from './auth.js';
 import {
   loginSchema,
-  personaRegistrySchema,
   pluginConfigSchema,
   pluginTestSchema,
   ruleConfigSchema,
@@ -66,9 +62,6 @@ interface SessionSummaryItem {
   chatType: 'group' | 'private';
   targetId: string;
   displayName: string;
-  usesDefaultPersona: boolean;
-  personaId: string;
-  personaName: string;
   status: SessionStatus;
   messageCount: number;
   handledCount: number;
@@ -333,7 +326,6 @@ function resolveSessionStatus(parsedChatKey: ParsedChatKey, rules: RuleConfig): 
 function buildSessionSummary(
   chatKey: string,
   session: ChatSession,
-  personas: PersonaRegistry,
   rules: RuleConfig
 ): SessionSummaryItem | null {
   const parsedChatKey = parseChatKey(chatKey);
@@ -341,9 +333,6 @@ function buildSessionSummary(
     return null;
   }
 
-  const usesDefaultPersona = !personas.bindings[chatKey];
-  const personaId = personas.bindings[chatKey] ?? personas.defaultPersonaId;
-  const persona = personas.personas.find((item) => item.id === personaId);
   const lastMessage = session.messages[session.messages.length - 1] ?? null;
 
   return {
@@ -351,9 +340,6 @@ function buildSessionSummary(
     chatType: parsedChatKey.chatType,
     targetId: parsedChatKey.targetId,
     displayName: resolveDisplayName(parsedChatKey, session),
-    usesDefaultPersona,
-    personaId,
-    personaName: persona?.name ?? personaId,
     status: resolveSessionStatus(parsedChatKey, rules),
     messageCount: session.messages.length,
     handledCount: session.handledMessageIds.length,
@@ -383,27 +369,25 @@ function updateBlacklist(list: string[], targetId: string, shouldInclude: boolea
 }
 
 async function loadAdminSessionContext() {
-  const [sessionsData, rules, personas] = await Promise.all([loadSessionsData(), loadRules(), loadPersonas()]);
-  return { sessionsData, rules, personas };
+  const [sessionsData, rules] = await Promise.all([loadSessionsData(), loadRules()]);
+  return { sessionsData, rules };
 }
 
 function buildSessionList(
   sessions: Record<string, ChatSession>,
-  personas: PersonaRegistry,
   rules: RuleConfig
 ): SessionSummaryItem[] {
   return Object.entries(sessions)
-    .map(([chatKey, session]) => buildSessionSummary(chatKey, session, personas, rules))
+    .map(([chatKey, session]) => buildSessionSummary(chatKey, session, rules))
     .filter((item): item is SessionSummaryItem => Boolean(item))
     .sort((a, b) => (b.latestActivityAt ?? 0) - (a.latestActivityAt ?? 0));
 }
 
 function buildTaskTargetOptions(
   sessions: Record<string, ChatSession>,
-  personas: PersonaRegistry,
   rules: RuleConfig
 ): TaskTargetOption[] {
-  return buildSessionList(sessions, personas, rules).map((item) => ({
+  return buildSessionList(sessions, rules).map((item) => ({
     chatKey: item.chatKey,
     chatType: item.chatType,
     targetId: item.targetId,
@@ -557,8 +541,8 @@ export function createAdminServer(sender: NapcatSender | null): Server {
       }
 
       if (pathname === '/admin/task-targets' && method === 'GET') {
-        const { sessionsData, rules, personas } = await loadAdminSessionContext();
-        writeJson(response, 200, buildTaskTargetOptions(sessionsData.sessions, personas, rules), origin);
+        const { sessionsData, rules } = await loadAdminSessionContext();
+        writeJson(response, 200, buildTaskTargetOptions(sessionsData.sessions, rules), origin);
         return;
       }
 
@@ -723,33 +707,12 @@ export function createAdminServer(sender: NapcatSender | null): Server {
         }
       }
 
-      if (pathname === '/admin/personas') {
-        if (method === 'GET') {
-          const personas = await loadPersonas();
-          writeJson(response, 200, personas, origin);
-          return;
-        }
-
-        if (method === 'PUT') {
-          const body = await readJsonBody(request);
-          const parsed = personaRegistrySchema.safeParse(body);
-          if (!parsed.success) {
-            writeJson(response, 400, toError('人设配置不合法', parsed.error.flatten()), origin);
-            return;
-          }
-
-          await savePersonas(parsed.data);
-          writeJson(response, 200, { ok: true }, origin);
-          return;
-        }
-      }
-
       if (pathname === '/admin/sessions' && method === 'GET') {
-        const { sessionsData, rules, personas } = await loadAdminSessionContext();
+        const { sessionsData, rules } = await loadAdminSessionContext();
         const chatKey = url.searchParams.get('chatKey');
         if (chatKey) {
           const session = sessionsData.sessions[chatKey] ?? null;
-          const summary = buildSessionSummary(chatKey, session ?? createEmptySession(), personas, rules);
+          const summary = buildSessionSummary(chatKey, session ?? createEmptySession(), rules);
           if (!summary) {
             writeJson(response, 400, toError('chatKey 不合法'), origin);
             return;
@@ -763,7 +726,7 @@ export function createAdminServer(sender: NapcatSender | null): Server {
           return;
         }
 
-        const entries = buildSessionList(sessionsData.sessions, personas, rules);
+        const entries = buildSessionList(sessionsData.sessions, rules);
 
         writeJson(response, 200, {
           total: entries.length,
@@ -780,24 +743,12 @@ export function createAdminServer(sender: NapcatSender | null): Server {
           return;
         }
 
-        const { sessionsData, rules, personas } = await loadAdminSessionContext();
+        const { sessionsData, rules } = await loadAdminSessionContext();
         const chatKey = parsed.data.chatKey;
         const parsedChatKey = parseChatKey(chatKey);
         if (!parsedChatKey) {
           writeJson(response, 400, toError('chatKey 不合法'), origin);
           return;
-        }
-
-        if (parsed.data.personaId && !personas.personas.some((item) => item.id === parsed.data.personaId)) {
-          writeJson(response, 400, toError('目标人格不存在'), origin);
-          return;
-        }
-
-        const nextBindings = { ...personas.bindings };
-        if (!parsed.data.personaId || parsed.data.personaId === personas.defaultPersonaId) {
-          delete nextBindings[chatKey];
-        } else {
-          nextBindings[chatKey] = parsed.data.personaId;
         }
 
         const isBanned = parsed.data.status === 'banned';
@@ -808,12 +759,10 @@ export function createAdminServer(sender: NapcatSender | null): Server {
           rules.blacklistUsers = [...rules.privateBlacklist];
         }
 
-        personas.bindings = nextBindings;
-
-        await Promise.all([saveRules(rules), savePersonas(personas)]);
+        await saveRules(rules);
 
         const session = sessionsData.sessions[chatKey] ?? createEmptySession();
-        const summary = buildSessionSummary(chatKey, session, personas, rules);
+        const summary = buildSessionSummary(chatKey, session, rules);
         if (!summary) {
           writeJson(response, 400, toError('chatKey 不合法'), origin);
           return;

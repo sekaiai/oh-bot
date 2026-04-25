@@ -2,7 +2,7 @@ import type {
   BotMessage,
   Ds2ApiPluginConfig,
   OutboundMessageContent,
-  PersonaConfig,
+  ReplyProfile,
   PluginConfig,
   QingmengEndpointConfig,
   QingmengPluginConfig,
@@ -473,7 +473,7 @@ export class ToolRouter {
     message: BotMessage,
     plugins: PluginConfig[],
     contextMessages: SessionMessage[],
-    persona: PersonaConfig,
+    profile: ReplyProfile,
     contextSummary?: string
   ): Promise<ToolResolution> {
     const qweatherPlugin = findQWeatherPlugin(plugins);
@@ -504,7 +504,7 @@ export class ToolRouter {
           message,
           plugins,
           contextMessages,
-          persona,
+          profile,
           qingmengPlugin,
           contextSummary,
           ds2apiPreferences
@@ -556,7 +556,7 @@ export class ToolRouter {
           message,
           plugins,
           contextMessages,
-          persona,
+          profile,
           qingmengPlugin,
           contextSummary,
           ds2apiPreferences
@@ -580,7 +580,7 @@ export class ToolRouter {
         const reply = await this.aiClient.generateRoutedReply(
           message,
           contextMessages,
-          persona,
+          profile,
           ds2apiPlugin,
           route,
           {
@@ -601,7 +601,7 @@ export class ToolRouter {
           const reply = await this.aiClient.generateRoutedReply(
             message,
             contextMessages,
-            persona,
+            profile,
             ds2apiPlugin,
             route,
             {
@@ -629,7 +629,7 @@ export class ToolRouter {
             const reply = await this.aiClient.generateRoutedReply(
               message,
               contextMessages,
-              persona,
+              profile,
               fallbackDs2ApiPlugin,
               route,
               {
@@ -661,7 +661,7 @@ export class ToolRouter {
     message: BotMessage,
     plugins: PluginConfig[],
     contextMessages: SessionMessage[],
-    persona: PersonaConfig,
+    profile: ReplyProfile,
     qingmengPlugin: QingmengPluginConfig,
     contextSummary?: string,
     ds2apiPreferences?: {
@@ -714,7 +714,7 @@ export class ToolRouter {
               const reply = await this.aiClient.generateRoutedReply(
                 message,
                 contextMessages,
-                persona,
+                profile,
                 fallbackDs2ApiPlugin,
                 route,
                 {
@@ -772,7 +772,7 @@ export class ToolRouter {
           const reply = await this.aiClient.generateRoutedReply(
             message,
             contextMessages,
-            persona,
+            profile,
             fallbackDs2ApiPlugin,
             route,
             {

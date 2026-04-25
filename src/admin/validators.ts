@@ -14,44 +14,6 @@ export const ruleConfigSchema = z.object({
   cooldownSeconds: z.number().int().min(0)
 });
 
-const personaSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  systemPrompt: z.string().min(1),
-  temperature: z.number().min(0).max(2),
-  maxTokens: z.number().int().positive()
-});
-
-export const personaRegistrySchema = z.object({
-  defaultPersonaId: z.string().min(1),
-  personas: z.array(personaSchema).min(1),
-  bindings: z.record(z.string())
-}).superRefine((value, ctx) => {
-  const ids = new Set(value.personas.map((item) => item.id));
-  if (!ids.has(value.defaultPersonaId)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'defaultPersonaId 必须存在于 personas 列表中'
-    });
-  }
-
-  for (const [chatKey, personaId] of Object.entries(value.bindings)) {
-    if (!chatKey.startsWith('group:') && !chatKey.startsWith('private:')) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `非法会话绑定 key: ${chatKey}`
-      });
-    }
-
-    if (!ids.has(personaId)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `会话 ${chatKey} 绑定了不存在的人设 ${personaId}`
-      });
-    }
-  }
-});
-
 export const loginSchema = z.object({
   password: z.string().min(1)
 });
@@ -148,7 +110,6 @@ export const pluginTestSchema = z.object({
 
 export const sessionSettingsSchema = z.object({
   chatKey: z.string().regex(/^(group|private):[^:\s]+$/, 'chatKey 格式不合法'),
-  personaId: z.string().min(1).nullable(),
   status: z.enum(['available', 'banned'])
 });
 

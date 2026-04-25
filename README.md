@@ -107,12 +107,35 @@ ADMIN_SESSION_TTL_SECONDS=43200
 
 例如 `ds2api` 插件的典型配置：
 
-- `baseUrl`: `http://127.0.0.1:6011/v1`
+- Docker Compose 内部调用：`baseUrl`: `http://ds2api:5001/v1`
+- 宿主机本地调试调用：`baseUrl`: `http://127.0.0.1:10302/v1`
 - `routes[0]`: 日常对话 -> `gpt-4o`
 - `routes[1]`: 复杂分析 -> `o3`
 - `routes[2]`: 代码技术 -> `gpt-5-codex`
 
 当前流程是主 AI 先统一判断应该交给哪个插件；如果不是天气或外部接口类能力，就默认进入 `ds2api`，再从路由表里选择合适模型。
+
+## 南枝情绪人格
+
+当前回复主链路使用内置基础人格“南枝”，不再通过 `data/personas.json` 维护多套人格或会话绑定。
+
+南枝的基础设定是温和、自然、像真实朋友一样聊天的成年角色。回复默认保持 1 到 3 句话，并以 `南枝：` 开头。情绪层参考 `astrbot_plugin_affection` 的思路用 TypeScript 重写：系统会为每个用户维护好感度、他力比多、他攻击性、自力比多、自攻击性，并在生成回复前把当前情绪状态注入系统提示。
+
+运行期情绪数据默认写入：
+
+```text
+data/affection/<bot-self-id>/users.json
+data/affection/<bot-self-id>/self.json
+data/affection/config.json
+```
+
+当前支持的指令：
+
+- `/mystatus`：查看自己的情绪档案
+- `/reset_emotion [userId]`：管理员重置指定用户，未传 userId 时重置自己
+- `/reset_all_emotions`：管理员重置全部情绪档案
+
+情绪层只调节语气，不应覆盖事实回答、工具结果或安全边界。
 
 ## 天气能力
 
@@ -252,7 +275,7 @@ await sender.sendMessage({
 - 运行概览查看
 - 插件配置（DS2API / 和风天气）
 - `rules.json` 可视化编辑
-- `personas.json` 可视化编辑
+- 内置“南枝”基础人格与情绪档案
 - `sessions.json` 会话查询
 
 ### 启动后端（含管理 API）
@@ -310,7 +333,18 @@ cd docker
 docker compose up -d
 ```
 
-管理端默认暴露在 `http://服务器:8080`，可通过 `ADMIN_WEB_HOST_PORT` 调整。
+默认对外端口从 `10300` 开始依次分配：
+
+| 服务 | 环境变量 | 宿主机端口 | 容器端口 | 用途 |
+| --- | --- | ---: | ---: | --- |
+| NapCat WS | `NAPCAT_WS_HOST_PORT` | `10300` | `3001` | OneBot WebSocket |
+| NapCat Web | `NAPCAT_WEB_HOST_PORT` | `10301` | `6099` | NapCat Web 管理入口 |
+| DS2API | `DS2API_HOST_PORT` | `10302` | `5001` | OpenAI 兼容 API |
+| 管理端 Web | `ADMIN_WEB_HOST_PORT` | `10303` | `80` | oh-bot 管理页面 |
+
+NapCat Web 登录密钥由 `NAPCAT_WEBUI_TOKEN` 设置。
+
+管理端默认暴露在 `http://服务器:10303`，可通过 `ADMIN_WEB_HOST_PORT` 调整。
 
 在 Docker 网络内，DS2API 插件地址建议配置为：
 
@@ -335,4 +369,4 @@ cd docker
 docker compose --profile auto-update up -d
 ```
 
-这个模式会自动更新带有 Watchtower 标签的 `ds2api` 容器；更省心，但版本变化不可通过 PR 预审。
+这个模式会自动更新带有 Watchtower 标签的 `napcat` 和 `ds2api` 容器；更省心，但版本变化不可通过 PR 预审。

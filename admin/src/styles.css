@@ -455,7 +455,6 @@ a {
 }
 
 .stats-grid,
-.persona-grid,
 .session-grid,
 .form-grid {
   display: grid;
@@ -467,7 +466,6 @@ a {
 }
 
 .form-grid-two,
-.persona-grid,
 .session-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -499,7 +497,6 @@ a {
 
 .metric-card-note,
 .section-toolbar p,
-.persona-card-head p,
 .toolbar-note,
 .preview-meta,
 .session-card-title p,
@@ -1183,7 +1180,6 @@ a {
   font-size: 20px;
 }
 
-.persona-card-head,
 .session-title-block {
   display: flex;
   flex-direction: column;
@@ -1499,7 +1495,6 @@ a {
 @media (max-width: 1280px) {
   .stats-grid,
   .summary-list,
-  .persona-grid,
   .session-grid,
   .form-grid-two {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1563,7 +1558,6 @@ a {
 @media (max-width: 768px) {
   .stats-grid,
   .summary-list,
-  .persona-grid,
   .session-grid,
   .form-grid-two {
     grid-template-columns: 1fr;

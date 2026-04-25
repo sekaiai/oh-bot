@@ -147,7 +147,7 @@ async function main(): Promise<void> {
     }
   }
 
-  for (const relativePath of ['rules.json', 'personas.json', 'plugins']) {
+  for (const relativePath of ['rules.json', 'plugins']) {
     const targetPath = path.join(dataDir, relativePath);
     if (!(await fileExists(targetPath))) {
       pushDiagnostic(dataDiagnostics, 'warn', `缺少运行期数据: ${targetPath}`);

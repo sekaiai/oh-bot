@@ -4,7 +4,7 @@
       <p class="page-eyebrow">安全入口</p>
       <h2>进入 oh-bot 管理控制台</h2>
       <p class="page-description">
-        当前面板用于维护规则、人格和会话状态。登录密码取自当前项目 `.env` 中的 `ADMIN_PASSWORD`。
+        当前面板用于维护规则、插件和会话状态。登录密码取自当前项目 `.env` 中的 `ADMIN_PASSWORD`。
       </p>
     </div>
 

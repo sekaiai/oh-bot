@@ -5,7 +5,7 @@
         <p class="page-eyebrow">会话控制</p>
         <h2>会话列表、配置与消息日志</h2>
         <p class="page-description">
-          面板每 5 秒自动同步一次列表与当前展开会话。可直接调整人格绑定和封禁状态。
+          面板每 5 秒自动同步一次列表与当前展开会话。可直接调整会话封禁状态。
         </p>
       </div>
 
@@ -83,14 +83,6 @@
 
         <div class="session-chip-row">
           <div class="info-chip">
-            <span>人格</span>
-            <strong>{{ item.personaName }}</strong>
-            <span class="mini-tag" :class="item.usesDefaultPersona ? 'mini-tag-muted' : 'mini-tag-positive'">
-              {{ item.usesDefaultPersona ? '默认' : '单独绑定' }}
-            </span>
-          </div>
-
-          <div class="info-chip">
             <span>状态</span>
             <span class="mini-tag" :class="item.status === 'banned' ? 'mini-tag-danger' : 'mini-tag-positive'">
               {{ item.status === 'banned' ? '封禁' : '可用' }}
@@ -143,16 +135,6 @@
               <strong>{{ settingsSummary.status === 'banned' ? '封禁' : '可用' }}</strong>
             </div>
           </div>
-
-          <label class="field-block">
-            <span class="field-label">会话人格</span>
-            <select v-model="settingsForm.personaId" class="ui-select">
-              <option :value="DEFAULT_PERSONA_VALUE">跟随默认人格</option>
-              <option v-for="persona in personaOptions" :key="persona.id" :value="persona.id">
-                {{ persona.name }}（{{ persona.id }}）
-              </option>
-            </select>
-          </label>
 
           <fieldset class="radio-group-field">
             <legend class="field-label">会话状态</legend>
@@ -209,10 +191,6 @@
       <template v-if="selectedSummary">
         <div class="session-log-summary">
           <div class="summary-pill">
-            <span>会话人格</span>
-            <strong>{{ selectedSummary.personaName }}</strong>
-          </div>
-          <div class="summary-pill">
             <span>会话类型</span>
             <strong>{{ selectedSummary.chatType === 'group' ? '群聊' : '私聊' }}</strong>
           </div>
@@ -267,14 +245,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { ApiError } from '../api/client';
 import BaseModal from '../components/BaseModal.vue';
 import { useMessage } from '../stores/message';
-import { usePersonaStore } from '../stores/personas';
 import { useSessionsStore } from '../stores/sessions';
 import type { SessionItemSummary, SessionMessage, SessionStatus } from '../types';
 
-const DEFAULT_PERSONA_VALUE = '__default__';
-
 const store = useSessionsStore();
-const personaStore = usePersonaStore();
 const keyword = ref('');
 const chatTypeFilter = ref<'all' | 'group' | 'private'>('all');
 const settingsVisible = ref(false);
@@ -283,10 +257,8 @@ const settingsChatKey = ref('');
 const logViewport = ref<HTMLDivElement | null>(null);
 const message = useMessage();
 const settingsForm = reactive<{
-  personaId: string;
   status: SessionStatus;
 }>({
-  personaId: DEFAULT_PERSONA_VALUE,
   status: 'available'
 });
 
@@ -343,7 +315,6 @@ const filteredSessions = computed(() => {
       item.chatKey,
       item.displayName,
       item.targetId,
-      item.personaName,
       item.lastMessage?.content ?? ''
     ]
       .join(' ')
@@ -364,8 +335,6 @@ const selectedSummary = computed(() => {
 const settingsSummary = computed(() => {
   return store.sessions.find((item) => item.chatKey === settingsChatKey.value) ?? store.detail?.summary ?? null;
 });
-
-const personaOptions = computed(() => personaStore.data?.personas ?? []);
 
 const refreshedAtLabel = computed(() => {
   if (!store.refreshedAt) {
@@ -443,12 +412,6 @@ function formatSpeaker(message: SessionMessage): string {
   return message.senderNickname || message.userId || '未知用户';
 }
 
-async function ensurePersonas(): Promise<void> {
-  if (!personaStore.data && !personaStore.loading) {
-    await personaStore.fetchPersonas();
-  }
-}
-
 async function refreshAll(silent = false): Promise<void> {
   await store.fetchSessions({ silent });
   if (detailVisible.value && store.selectedChatKey) {
@@ -472,9 +435,7 @@ function closeDetail(): void {
 }
 
 async function openSettings(summary: SessionItemSummary): Promise<void> {
-  await ensurePersonas();
   settingsChatKey.value = summary.chatKey;
-  settingsForm.personaId = summary.usesDefaultPersona ? DEFAULT_PERSONA_VALUE : summary.personaId;
   settingsForm.status = summary.status;
   settingsVisible.value = true;
 }
@@ -489,7 +450,6 @@ async function saveSettings(): Promise<void> {
   try {
     await store.saveSessionSettings({
       chatKey,
-      personaId: settingsForm.personaId === DEFAULT_PERSONA_VALUE ? null : settingsForm.personaId,
       status: settingsForm.status
     });
 

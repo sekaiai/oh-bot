@@ -11,20 +11,6 @@ export interface RuleConfig {
   cooldownSeconds: number;
 }
 
-export interface PersonaConfig {
-  id: string;
-  name: string;
-  systemPrompt: string;
-  temperature: number;
-  maxTokens: number;
-}
-
-export interface PersonaRegistry {
-  defaultPersonaId: string;
-  personas: PersonaConfig[];
-  bindings: Record<string, string>;
-}
-
 export interface AiEndpointConfig {
   baseUrl: string;
   apiKey: string;
@@ -138,9 +124,6 @@ export interface SessionItemSummary {
   chatType: 'private' | 'group';
   targetId: string;
   displayName: string;
-  usesDefaultPersona: boolean;
-  personaId: string;
-  personaName: string;
   status: SessionStatus;
   messageCount: number;
   handledCount: number;
@@ -222,7 +205,6 @@ export interface TaskTargetSearchResponse {
 
 export interface UpdateSessionSettingsPayload {
   chatKey: string;
-  personaId: string | null;
   status: SessionStatus;
 }
 

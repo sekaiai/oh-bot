@@ -2,6 +2,7 @@
 .env
 docker/.env
 docker/data/
+data/affection/
 docker/napcat/config/
 docker/ntqq/
 docker/napcat/qrcode.png

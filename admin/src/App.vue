@@ -100,7 +100,6 @@ const navItems: NavItem[] = [
   { key: 'plugins', label: '插件配置', path: '/plugins', mark: '件' },
   { key: 'tasks', label: '任务中心', path: '/tasks', mark: '任' },
   { key: 'rules', label: '规则配置', path: '/rules', mark: '规' },
-  { key: 'personas', label: '人格配置', path: '/personas', mark: '人' },
   { key: 'sessions', label: '会话控制', path: '/sessions', mark: '会' }
 ];
 

@@ -6,7 +6,7 @@
  * - 群聊触发判断
  * - 价值评分
  * - 冷却/去重
- * - persona 选择
+ * - 南枝基础人格与情绪状态
  * - AI 生成
  *
  * 串成一个稳定的 `ReplyDecision` 输出。
@@ -14,16 +14,17 @@
 import { config } from '../config/index.js';
 import type {
   BotMessage,
-  PersonaConfig,
-  PersonaRegistry,
+  ReplyProfile,
   ReplyDecision,
   ReplyReason,
   RuleConfig,
   SessionMessage
 } from '../types/bot.js';
 import { logger } from '../utils/logger.js';
+import { AffectionEngine } from './affection-engine.js';
 import { AiClient } from './ai-client.js';
-import { loadPersonas, loadPluginConfigs, loadRules } from './data-repository.js';
+import { loadPluginConfigs, loadRules } from './data-repository.js';
+import { NANZHI_REPLY_PROFILE } from './reply-profile.js';
 import { SessionStore } from './session-store.js';
 import { ToolRouter } from './tool-router.js';
 
@@ -80,27 +81,6 @@ function mentionsBotName(text: string, botNames: string[]): boolean {
  */
 function clampScore(score: number): number {
   return Math.max(0, Math.min(1, score));
-}
-
-/**
- * 选择当前消息对应的人设。
- *
- * 优先按会话绑定查找，找不到时回退到默认 persona，
- * 最后再回退到代码内置的最小 persona，保证回复链路不会因配置缺失中断。
- */
-function selectPersona(message: BotMessage, registry: PersonaRegistry): PersonaConfig {
-  const chatKey = getChatKey(message);
-  const personaId = registry.bindings[chatKey] ?? registry.defaultPersonaId;
-  return (
-    registry.personas.find((persona) => persona.id === personaId) ??
-    registry.personas[0] ?? {
-      id: 'assistant',
-      name: '稳健助手',
-      systemPrompt: '你是一个克制、可靠、直接的 QQ 助手。优先回答用户真正的问题，先给结论，再补必要说明。能一句说清就不说两句。不给无信息量寒暄，不接梗，不卖萌，不用油腻口头禅。群聊默认 1 到 2 句，只有在用户明确追问时再展开。',
-      temperature: 0.3,
-      maxTokens: 480
-    }
-  );
 }
 
 /**
@@ -199,6 +179,7 @@ function shouldDiscardGeneratedGroupReply(reply: string): boolean {
 export class ReplyEngine {
   private readonly aiClient = new AiClient();
   private readonly sessionStore = new SessionStore();
+  private readonly affectionEngine = new AffectionEngine();
   // ToolRouter 挂在 ReplyEngine，而不是直接塞进 AiClient，
   // 是为了保持“业务编排”和“模型调用”职责分离：一个决定要不要查工具，一个只负责和模型通信。
   private readonly toolRouter = new ToolRouter();
@@ -207,7 +188,7 @@ export class ReplyEngine {
    * 基于单条消息产出最终回复决策。
    *
    * 主流程：
-   * 1. 读取规则、persona 和会话状态；
+   * 1. 读取规则、会话状态和插件配置；
    * 2. 做黑名单、开关、去重等硬规则过滤；
    * 3. 群聊按 @ / 名字提及 / 价值评分决定是否进入可回复候选；
    * 4. 需要回复时调用模型生成文本；
@@ -215,9 +196,8 @@ export class ReplyEngine {
    */
   async decideAndGenerate(message: BotMessage): Promise<ReplyDecision> {
     const chatKey = getChatKey(message);
-    const [rules, personas, session, plugins] = await Promise.all([
+    const [rules, session, plugins] = await Promise.all([
       loadRules(),
-      loadPersonas(),
       this.sessionStore.getSession(chatKey),
       loadPluginConfigs()
     ]);
@@ -255,12 +235,30 @@ export class ReplyEngine {
       };
     }
 
+    const commandReply = await this.affectionEngine.handleCommand(message, rules);
+    if (commandReply) {
+      await this.sessionStore.recordInboundMessage(chatKey, message);
+      await this.sessionStore.recordAssistantReply(chatKey, commandReply, message.time, 'private_default');
+      return {
+        shouldReply: true,
+        reason: 'private_default',
+        reply: commandReply,
+        outboundMessage: commandReply
+      };
+    }
+
     const contextMessages = getRecentContext(session.messages, GROUP_CONTEXT_WINDOW);
     const promptContextMessages = getRecentContext(session.messages, MODEL_CONTEXT_WINDOW);
     const recentReplyAt = session.lastReplyAt ?? 0;
     const now = message.time;
     const isNameMention = message.chatType === 'group' && mentionsBotName(message.cleanText, rules.botNames);
-    const persona = selectPersona(message, personas);
+    const affectionPrompt = await this.affectionEngine.buildPrompt(message);
+    const profile: ReplyProfile = {
+      ...NANZHI_REPLY_PROFILE,
+      systemPrompt: affectionPrompt
+        ? `${NANZHI_REPLY_PROFILE.systemPrompt}\n\n${affectionPrompt}`
+        : NANZHI_REPLY_PROFILE.systemPrompt
+    };
     const isAssistantFollowUp = isFollowUpToRecentAssistantReply(contextMessages, message, now);
     let draftedReply: string | undefined;
 
@@ -311,7 +309,7 @@ export class ReplyEngine {
           message,
           promptContextMessages,
           rules.botNames,
-          persona,
+          profile,
           {
             baseUrl: config.AI_BASE_URL,
             apiKey: config.AI_API_KEY,
@@ -360,10 +358,14 @@ export class ReplyEngine {
       MODEL_CONTEXT_WINDOW + 1
     );
 
+    void this.affectionEngine.updateAfterMessage(message, generationContext).catch((error) => {
+      logger.warn({ err: error, messageId: message.messageId }, 'Affection update failed');
+    });
+
     try {
       // 工具调用放在“确定要回复”之后，而不是每条消息都先查天气，
       // 这样可以复用现有的触发/冷却/去重机制，避免群聊里无意义地消耗外部 API 配额。
-      const toolResolution = await this.toolRouter.resolve(message, plugins, generationContext, persona, session.contextSummary);
+      const toolResolution = await this.toolRouter.resolve(message, plugins, generationContext, profile, session.contextSummary);
 
       if (toolResolution.handled && toolResolution.reply && toolResolution.reason) {
         await this.sessionStore.recordAssistantReply(chatKey, toolResolution.reply, now, toolResolution.reason);
@@ -383,7 +385,7 @@ export class ReplyEngine {
           : await this.aiClient.generateReply(
             message,
             generationContext,
-            persona,
+            profile,
             finalReason,
             {
               baseUrl: config.AI_BASE_URL,
