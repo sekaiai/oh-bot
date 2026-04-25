@@ -6,14 +6,13 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update DS2API image references hidden behind Compose variable defaults",
+      "description": "Update image references hidden behind Compose variable defaults",
       "managerFilePatterns": [
         "/^docker\\/docker-compose\\.yml$/",
-        "/^docker\\/ds2api\\/docker-compose\\.yml$/",
         "/^docker\\/\\.env\\.example$/"
       ],
       "matchStrings": [
-        "DS2API_IMAGE(?:=|:-)(?<depName>ghcr\\.io\\/cjackhwang\\/ds2api):(?<currentValue>[^}\\n\\s]+)"
+        "(?:DS2API_IMAGE|NAPCAT_IMAGE)(?:=|:-)(?<depName>[^:\\n\\s}]+\\/[^:\\n\\s}]+):(?<currentValue>[^}\\n\\s]+)"
       ],
       "datasourceTemplate": "docker"
     }
