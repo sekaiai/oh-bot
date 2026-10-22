@@ -40,3 +40,15 @@ export function errorFeedback(error, env) {
 export function retryBacklog(markdown,task) {
   return markdown.replace(task.line.replace('- [ ]','- [x]'),task.line);
 }
+
+const taskScopes = {
+  F4b: path => path.startsWith('packages/compatibility/')
+    || path === 'docs/implementation/progress.md'
+    || path === 'docs/implementation/unattended-retry-feedback.md',
+};
+
+export function taskPathAllowed(task, path) {
+  if (!allowedPath(path)) return false;
+  const scope = taskScopes[task?.id];
+  return scope ? scope(path) : true;
+}

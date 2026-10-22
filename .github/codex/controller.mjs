@@ -2,7 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {readFileSync, writeFileSync, appendFileSync, existsSync, lstatSync, mkdtempSync, mkdirSync, copyFileSync, rmSync} from 'node:fs';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {allowedPath, assertManifest, reviewApproved, selectTask, publicationTarget, errorFeedback, retryBacklog} from './policy.mjs';
+import {allowedPath, taskPathAllowed, assertManifest, reviewApproved, selectTask, publicationTarget, errorFeedback, retryBacklog} from './policy.mjs';
 
 const control = dirname(fileURLToPath(import.meta.url));
 const tasksPath = 'docs/implementation/unattended-tasks.md';
@@ -37,7 +37,7 @@ export function guard(state,cwd=process.cwd()) {
     ...git(['ls-files','--others','--exclude-standard'],cwd).split('\n')
   ].filter(Boolean));
   for(const path of changed) {
-    if(!allowedPath(path)) throw new Error('Protected path changed: '+path);
+    if(!allowedPath(path) || (state.task && !taskPathAllowed(state.task,path))) throw new Error('Protected or out-of-task path changed: '+path);
     const full=join(cwd,path);
     if(existsSync(full) && lstatSync(full).isSymbolicLink()) throw new Error('Symlink rejected: '+path);
     if(/(^|\/)package\.json$/.test(path)) {

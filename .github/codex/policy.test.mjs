@@ -22,3 +22,11 @@ test("does not persist forbidden changes", () => assert.equal((p=>p.publicationT
 test("test feedback includes stdout", () => assert.equal((p=>p.errorFeedback({stdout:'Assertion failed',stderr:''},{})==='Assertion failed')(p), true));
 test("test feedback redacts secrets", () => assert.equal((p=>p.errorFeedback({stdout:'key=secret-value',stderr:'bad'},{DEEPSEEK_API_KEY:'secret-value'}).includes('[REDACTED]'))(p), true));
 test("retry restores only trusted task checkbox", () => assert.equal((p=>p.retryBacklog('- [x] F4b：work\n- [ ] F4c：next',{line:'- [ ] F4b：work'})==='- [ ] F4b：work\n- [ ] F4c：next')(p), true));
+
+test("F4b changes stay inside compatibility package and progress", () => assert.equal((p =>
+  p.taskPathAllowed({id:"F4b"}, "packages/compatibility/src/history-deletion.ts")
+  && p.taskPathAllowed({id:"F4b"}, "docs/implementation/progress.md")
+  && p.taskPathAllowed({id:"F4b"}, "docs/implementation/unattended-retry-feedback.md")
+  && !p.taskPathAllowed({id:"F4b"}, "packages/companion/src/worker.ts")
+  && !p.taskPathAllowed({id:"F4b"}, "packages/companion/admin/src/App.vue")
+)(p), true));
