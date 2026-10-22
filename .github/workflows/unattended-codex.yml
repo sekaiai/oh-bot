@@ -1,4 +1,4 @@
-name: Unattended Codex
+name: Unattended DeepSeek
 
 on:
   workflow_dispatch:
@@ -39,11 +39,11 @@ jobs:
     steps:
       - name: Check required configuration
         env:
-          API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          MODEL: ${{ vars.CODEX_MODEL }}
+          API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MODEL: ${{ vars.DEEPSEEK_MODEL }}
         run: |
-          test -n "$API_KEY" || { echo 'Missing OPENAI_API_KEY secret'; exit 1; }
-          test -n "$MODEL" || { echo 'Missing CODEX_MODEL variable'; exit 1; }
+          test -n "$API_KEY" || { echo 'Missing DEEPSEEK_API_KEY secret'; exit 1; }
+          test -n "$MODEL" || { echo 'Missing DEEPSEEK_MODEL variable'; exit 1; }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: feat/companion-v3
@@ -56,6 +56,8 @@ jobs:
         with:
           version: '11.25.0'
           run_install: false
+      - name: Install pinned DeepSeek coding agent
+        run: npm install --global opencode-ai@1.19.3
       - name: Install and prepare isolated test databases
         env:
           PGPASSWORD: compat-test-only
@@ -66,20 +68,36 @@ jobs:
         id: baseline
         run: |
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          cp .github/codex/prompt.md "$RUNNER_TEMP/codex-prompt.md"
+          cp .github/codex/prompt.md "$RUNNER_TEMP/coding-prompt.md"
           cp scripts/unattended-check.sh "$RUNNER_TEMP/unattended-check.sh"
-      - name: Implement one task
+          cat > "$RUNNER_TEMP/opencode.json" <<'JSON'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+              "deepseek": {
+                "options": { "apiKey": "{env:DEEPSEEK_API_KEY}" }
+              }
+            },
+            "permission": {
+              "*": "allow",
+              "shell": "deny",
+              "external_directory": "deny"
+            }
+          }
+          JSON
+      - name: Implement one task with DeepSeek
         id: code
         timeout-minutes: 25
-        uses: openai/codex-action@c05cfd74ad95c626cdf05c6685e62becc3bf7813
-        with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          model: ${{ vars.CODEX_MODEL }}
-          codex-version: '0.163.0'
-          prompt-file: ${{ runner.temp }}/codex-prompt.md
-          output-file: ${{ runner.temp }}/codex-result.md
-          sandbox: workspace-write
-          safety-strategy: drop-sudo
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENCODE_MODEL: ${{ vars.DEEPSEEK_MODEL }}
+          OPENCODE_CONFIG: ${{ runner.temp }}/opencode.json
+        run: |
+          opencode run \
+            --model "$OPENCODE_MODEL" \
+            --agent build \
+            --file "$RUNNER_TEMP/coding-prompt.md" \
+            "Implement the next task in this repository using the attached instructions."
       - name: Enforce allowed change paths
         if: always() && steps.code.outcome != 'skipped'
         env:
