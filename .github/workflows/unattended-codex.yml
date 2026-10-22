@@ -1,0 +1,127 @@
+name: Unattended Codex
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 1,13 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oh-bot-unattended
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    if: vars.UNATTENDED_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+        env:
+          POSTGRES_USER: compat
+          POSTGRES_PASSWORD: compat-test-only
+          POSTGRES_DB: oh_bot_core_v2_compat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U compat -d oh_bot_core_v2_compat"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CI: 'true'
+      CORE_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_core_v2_compat
+      WORKER_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_worker_compat
+    steps:
+      - name: Check required configuration
+        env:
+          API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODEL: ${{ vars.CODEX_MODEL }}
+        run: |
+          test -n "$API_KEY" || { echo 'Missing OPENAI_API_KEY secret'; exit 1; }
+          test -n "$MODEL" || { echo 'Missing CODEX_MODEL variable'; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: feat/companion-v3
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: '11.25.0'
+          run_install: false
+      - name: Install and prepare isolated test databases
+        env:
+          PGPASSWORD: compat-test-only
+        run: |
+          pnpm install --frozen-lockfile
+          psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
+      - name: Preserve trusted task and verification inputs
+        id: baseline
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          cp .github/codex/prompt.md "$RUNNER_TEMP/codex-prompt.md"
+          cp scripts/unattended-check.sh "$RUNNER_TEMP/unattended-check.sh"
+      - name: Implement one task
+        id: code
+        timeout-minutes: 25
+        uses: openai/codex-action@c05cfd74ad95c626cdf05c6685e62becc3bf7813
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          model: ${{ vars.CODEX_MODEL }}
+          codex-version: '0.163.0'
+          prompt-file: ${{ runner.temp }}/codex-prompt.md
+          output-file: ${{ runner.temp }}/codex-result.md
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+      - name: Enforce allowed change paths
+        if: always() && steps.code.outcome != 'skipped'
+        env:
+          BASE_COMMIT: ${{ steps.baseline.outputs.commit }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          base = os.environ['BASE_COMMIT']
+          if not base:
+              raise SystemExit('Missing trusted baseline')
+          tracked = subprocess.check_output(['git', 'diff', '--name-only', base, '-z']).split(b'\0')
+          new = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z']).split(b'\0')
+          protected = ('.github/', 'data/', 'docker/', '.superpowers/', 'scripts/unattended-', 'AGENTS.md', '.gitmodules')
+          blocked = [p.decode() for p in tracked + new if p and p.decode().startswith(protected)]
+          if blocked:
+              raise SystemExit('Protected paths changed: ' + ', '.join(blocked))
+          PY
+      - name: Verify changes
+        id: checks
+        timeout-minutes: 12
+        continue-on-error: true
+        run: bash "$RUNNER_TEMP/unattended-check.sh"
+      - name: Publish draft PR
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
+        with:
+          token: ${{ github.token }}
+          base: feat/companion-v3
+          branch: automation/companion-next
+          draft: true
+          commit-message: '自动推进陪伴系统待办任务'
+          title: '自动推进陪伴系统待办任务'
+          body: |
+            自动执行一个待办任务，等待人工审查和合并。
+
+            验证结果：${{ steps.checks.outcome }}。
+            执行日志：https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            检查失败时保留草稿供修复，不代表验收通过。
+      - name: Record status
+        if: always()
+        env:
+          CODE_RESULT: ${{ steps.code.outcome }}
+          CHECK_RESULT: ${{ steps.checks.outcome }}
+        run: |
+          printf '## 无人值守执行状态\n\n编码：%s\n\n验证：%s\n\n仅创建草稿 PR；没有自动合并或部署。\n' "$CODE_RESULT" "$CHECK_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          test "$CODE_RESULT" = success && test "$CHECK_RESULT" = success
