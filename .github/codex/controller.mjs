@@ -148,6 +148,13 @@ export async function cycle() {
   const state=load();
   let feedback='Implement the selected task. Do not mark the task checkbox; the trusted controller does this only after tests and review.';
   if(!process.env.DEEPSEEK_API_KEY) throw new Error('Missing GitHub Actions secret DEEPSEEK_API_KEY');
+  const probe=await fetch('https://api.deepseek.com/chat/completions',{
+    method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+process.env.DEEPSEEK_API_KEY},
+    body:JSON.stringify({model:(process.env.DEEPSEEK_MODEL||'deepseek/deepseek-chat').replace(/^deepseek\//,''),max_tokens:8,messages:[{role:'user',content:'Reply OK.'}]}),
+    signal:AbortSignal.timeout(60000)
+  });
+  if(!probe.ok) throw new Error('DeepSeek model preflight HTTP '+probe.status+': '+(await probe.text()).slice(0,2000));
+  summary('DeepSeek真实API连通性检查通过。');
   const config={
     $schema:'https://opencode.ai/config.json',
     provider:{deepseek:{options:{apiKey:'{env:DEEPSEEK_API_KEY}'}}},
@@ -166,7 +173,7 @@ export async function cycle() {
       summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/3');
       const prompt=readFileSync(join(control,'prompt.md'),'utf8')+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\n\n'+feedback;
       // Instructions are in the initial message, so no outside-directory attachment permission is needed.
-      const result=execFileSync('timeout',['--kill-after=10s','420s','opencode','run','--model',process.env.DEEPSEEK_MODEL||'deepseek/deepseek-chat','--agent','build',prompt],{
+      const result=execFileSync('timeout',['--kill-after=10s','420s','opencode','run','--print-logs','--log-level','ERROR','--model',process.env.DEEPSEEK_MODEL||'deepseek/deepseek-chat','--agent','build',prompt],{
         env:{...safeEnv(),DEEPSEEK_API_KEY:process.env.DEEPSEEK_API_KEY,OPENCODE_CONFIG:configPath},
         encoding:'utf8',timeout:440000,maxBuffer:4*1024*1024
       });
