@@ -157,7 +157,7 @@ export async function cycle() {
   summary('DeepSeek真实API连通性检查通过。');
   const config={
     $schema:'https://opencode.ai/config.json',
-    provider:{deepseek:{options:{apiKey:'{env:DEEPSEEK_API_KEY}'}}},
+    provider:{deepseek:{options:{apiKey:'{env:DEEPSEEK_API_KEY}'},models:{[(process.env.DEEPSEEK_MODEL||'deepseek/deepseek-chat').replace(/^deepseek\//,'')]:{name:'Configured DeepSeek API model',tool_call:true,limit:{context:131072,output:8192}}}}},
     permission:{
       '*':'allow',shell:'deny',bash:'deny',task:'deny',webfetch:'deny',websearch:'deny',
       external_directory:'deny',
