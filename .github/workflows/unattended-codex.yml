@@ -3,7 +3,12 @@ name: Unattended DeepSeek
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 1,13 * * *'
+    - cron: '*/30 * * * *'
+  push:
+    branches: [main, chore/full-unattended-20261022]
+    paths:
+      - '.github/codex/**'
+      - '.github/workflows/unattended-codex.yml'
 
 permissions:
   contents: read
@@ -13,13 +18,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  implement:
-    if: vars.UNATTENDED_ENABLED == 'true'
+  controller-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Build isolated verifier
+        run: docker build --tag oh-bot-verifier --file .github/codex/verify.Dockerfile .github/codex
+      - name: Verify trusted controller
+        run: |
+          node --check .github/codex/controller.mjs
+          node --test .github/codex/policy.test.mjs .github/codex/controller.test.mjs .github/codex/isolation.test.mjs
+          bash -n .github/codex/check.sh
+
+  implement:
+    needs: controller-tests
+    if: github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
     permissions:
       contents: write
-      pull-requests: write
+      actions: write
     services:
       postgres:
         image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
@@ -36,17 +60,20 @@ jobs:
       CI: 'true'
       CORE_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_core_v2_compat
       WORKER_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_worker_compat
+    defaults:
+      run:
+        working-directory: project
     steps:
-      - name: Check required configuration
-        env:
-          API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          MODEL: ${{ vars.DEEPSEEK_MODEL }}
-        run: |
-          test -n "$API_KEY" || { echo 'Missing DEEPSEEK_API_KEY secret'; exit 1; }
-          test -n "$MODEL" || { echo 'Missing DEEPSEEK_MODEL variable'; exit 1; }
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout trusted controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout development branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: feat/companion-v3
+          path: project
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -56,90 +83,82 @@ jobs:
         with:
           version: '11.25.0'
           run_install: false
-      - name: Install pinned DeepSeek coding agent
-        run: npm install --global opencode-ai@1.19.3
-      - name: Install and prepare isolated test databases
+      - name: Select next task and restore unfinished work
+        id: prepare
+        run: node ../control/.github/codex/controller.mjs prepare
+      - name: Check model configuration
+        if: steps.prepare.outputs.active == 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          test -n "$DEEPSEEK_API_KEY" || { echo 'Missing GitHub Actions secret DEEPSEEK_API_KEY'; exit 1; }
+      - name: Prepare isolated runner
+        if: steps.prepare.outputs.active == 'true'
         env:
           PGPASSWORD: compat-test-only
         run: |
-          pnpm install --frozen-lockfile
+          npm install --global opencode-ai@1.19.3
+          docker build --tag oh-bot-verifier --file ../control/.github/codex/verify.Dockerfile ../control/.github/codex
           psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
-      - name: Preserve trusted task and verification inputs
-        id: baseline
-        run: |
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          cp .github/codex/prompt.md "$RUNNER_TEMP/coding-prompt.md"
-          cp scripts/unattended-check.sh "$RUNNER_TEMP/unattended-check.sh"
-          cat > "$RUNNER_TEMP/opencode.json" <<'JSON'
-          {
-            "$schema": "https://opencode.ai/config.json",
-            "provider": {
-              "deepseek": {
-                "options": { "apiKey": "{env:DEEPSEEK_API_KEY}" }
-              }
-            },
-            "permission": {
-              "*": "allow",
-              "shell": "deny",
-              "external_directory": "deny"
-            }
-          }
-          JSON
-      - name: Implement one task with DeepSeek
-        id: code
-        timeout-minutes: 25
+      - name: Implement, verify, repair and independently review
+        if: steps.prepare.outputs.active == 'true'
+        id: cycle
+        timeout-minutes: 57
+        continue-on-error: true
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          OPENCODE_MODEL: ${{ vars.DEEPSEEK_MODEL }}
-          OPENCODE_CONFIG: ${{ runner.temp }}/opencode.json
-        run: |
-          opencode run \
-            --model "$OPENCODE_MODEL" \
-            --agent build \
-            --file "$RUNNER_TEMP/coding-prompt.md" \
-            "Implement the next task in this repository using the attached instructions."
-      - name: Enforce allowed change paths
-        if: always() && steps.code.outcome != 'skipped'
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek/deepseek-chat' }}
+        run: node ../control/.github/codex/controller.mjs cycle
+      - name: Deliver verified work or save retry checkpoint
+        if: always() && steps.cycle.outcome != 'skipped' && steps.cycle.outcome != ''
         env:
-          BASE_COMMIT: ${{ steps.baseline.outputs.commit }}
-        run: |
-          python3 - <<'PY'
-          import os, subprocess
-          base = os.environ['BASE_COMMIT']
-          if not base:
-              raise SystemExit('Missing trusted baseline')
-          tracked = subprocess.check_output(['git', 'diff', '--name-only', base, '-z']).split(b'\0')
-          new = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z']).split(b'\0')
-          protected = ('.github/', 'data/', 'docker/', '.superpowers/', 'scripts/unattended-', 'AGENTS.md', '.gitmodules')
-          blocked = [p.decode() for p in tracked + new if p and p.decode().startswith(protected)]
-          if blocked:
-              raise SystemExit('Protected paths changed: ' + ', '.join(blocked))
-          PY
-      - name: Verify changes
-        id: checks
-        timeout-minutes: 12
-        continue-on-error: true
-        run: bash "$RUNNER_TEMP/unattended-check.sh"
-      - name: Publish draft PR
-        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
-        with:
-          token: ${{ github.token }}
-          base: feat/companion-v3
-          branch: automation/companion-next
-          draft: true
-          commit-message: '自动推进陪伴系统待办任务'
-          title: '自动推进陪伴系统待办任务'
-          body: |
-            自动执行一个待办任务，等待人工审查和合并。
+          GH_TOKEN: ${{ github.token }}
+        run: node ../control/.github/codex/controller.mjs publish
 
-            验证结果：${{ steps.checks.outcome }}。
-            执行日志：https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            检查失败时保留草稿供修复，不代表验收通过。
-      - name: Record status
-        if: always()
+  baseline-verification:
+    needs: controller-tests
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
         env:
-          CODE_RESULT: ${{ steps.code.outcome }}
-          CHECK_RESULT: ${{ steps.checks.outcome }}
+          POSTGRES_USER: compat
+          POSTGRES_PASSWORD: compat-test-only
+          POSTGRES_DB: oh_bot_core_v2_compat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U compat -d oh_bot_core_v2_compat"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CI: 'true'
+      CORE_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_core_v2_compat
+      WORKER_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_worker_compat
+    defaults:
+      run:
+        working-directory: project
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: project
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Build isolated verifier and databases
+        env:
+          PGPASSWORD: compat-test-only
         run: |
-          printf '## 无人值守执行状态\n\n编码：%s\n\n验证：%s\n\n仅创建草稿 PR；没有自动合并或部署。\n' "$CODE_RESULT" "$CHECK_RESULT" >> "$GITHUB_STEP_SUMMARY"
-          test "$CODE_RESULT" = success && test "$CHECK_RESULT" = success
+          docker build --tag oh-bot-verifier --file ../control/.github/codex/verify.Dockerfile ../control/.github/codex
+          psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
+      - name: Run complete project verification without model credentials
+        run: |
+          node ../control/.github/codex/controller.mjs prepare
+          node ../control/.github/codex/controller.mjs verify

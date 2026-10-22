@@ -1,9 +1,6 @@
-继续实施 oh-bot 的陪伴系统。你是通过 DeepSeek API 调用的 OpenCode 执行器，每轮只完成 docs/implementation/unattended-tasks.md 中第一个未完成且依赖满足的任务。
-
-先读 AGENTS.md、任务清单、docs/implementation/progress.md，以及对应设计和计划。以实际代码和测试为准，不能把旧报告当作新验证结果。若任务已被其他提交完成，核实后选择下一项。若没有明确可执行任务，停止并说明，不自行扩展范围。
-
-实现前检查当前实现和测试。需要修复的缺陷先复现，完成后运行有意义的测试。只有测试通过才能勾选任务并更新公开进度。遇到阻塞保留任务未完成状态，记录缺少的信息，不捏造成功。单轮最多一次实现和两次修复尝试，保留最终验证所需时间。
-
-不要 git commit、push、merge、reset 或修改 Git 配置；外层流程负责提交。不要调用 shell 工具。不要修改 .github/、AGENTS.md、scripts/unattended-*、data/、docker/、.superpowers/ 或 .gitmodules，不读取凭据，不修改生产数据。任务要求这些改动时停止并报告。不要启动真实机器人、发送 QQ 消息、调用真实聊天/Embedding API、部署或安装远程第三方代码。依赖变更保留供应链和版本约束。保留 SDK/业务数据库边界、身份与隐私过滤、过期租约 fencing、unknown 回执不自动重发原则。
-
-末尾用中文说明：完成的任务、修改、实际执行的测试与结果、剩余风险；明确未完成项。不要声称整个系统已完成。
+继续实施 oh-bot 陪伴系统，严格只完成控制器指定的一个任务。先读 AGENTS.md、docs/implementation/progress.md、无人值守任务清单和 foundation 计划。已实现部分以真实代码为准，补齐当前任务的证据，不重复搭建。
+用户于2026-10-22授权全自动开发、验证、独立模型审查和自动交付到 feat/companion-v3。你只编辑源代码、测试和实施进度；提交、验证命令、任务勾选、发布由外层受信控制器执行。不用等待人工批准。
+你没有 shell 权限；不要声称运行了测试。编写有意义的测试，外层会把真实失败日志反馈给你；有反馈时只修复本轮任务。不要删除、跳过或弱化既有测试；不改已有 package.json scripts，不改任务清单或控制器。
+不要 commit/push/merge/reset，不修改Git配置。不要读凭据或生产数据，不编辑 .github/、AGENTS.md、scripts/unattended-*、docker/、data/、.superpowers/、.opencode/、环境凭据文件或历史设计计划。不安装远程代码、不启动真实QQ连接、不发送消息。F8的Compose是新版独立包中的交付产物，不能覆盖运行中的旧docker目录。
+保持Nest/Fastify模块边界、唯一Mem0/LangGraph链路、SDK与业务数据库隔离、身份和隐私过滤、过期租约fencing、unknown回执不自动重发。依赖保持版本和供应链约束。第三方API、服务器或人工人格评估缺配置时明确报告未验证，使用协议fixture继续完成可独立验证代码，不能伪造live验收。
+不要勾选任务；只写本轮实现和剩余问题，实际测试结果由控制器记录。不要扩大到整份长计划，不要停在建议或占位实现。

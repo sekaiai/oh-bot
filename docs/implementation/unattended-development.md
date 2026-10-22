@@ -1,29 +1,22 @@
-# 无人值守开发
+# 全自动开发
 
-流程：GitHub Actions 启动临时 Ubuntu + pgvector → OpenCode 编码执行器通过 DeepSeek 完成一个明确任务 → 固定验证 → 推送草稿 PR。默认目标是 `feat/companion-v3`，不会自动合并、部署或发送 QQ 消息。工作流代码已建立不等于自动执行已启用。
+用户于2026-10-22要求完全全自动。现有流程已改为：选任务 → 编码 → 固定测试 → 最多两次自动修复 → 单独模型审查 → 非强制快进写入 `feat/companion-v3` → 自动触发下一项。不再需要人工创建、审查或合并草稿PR。
 
-## 首次启用
+## 触发、暂停和凭据
 
-1. 将本工作流文件合并到仓库默认分支 `main`。GitHub 的 schedule 和首次 workflow_dispatch 发现依赖默认分支；同时确保目标 `feat/companion-v3` 也包含 prompt、脚本和任务清单。
-2. 在仓库 Settings → Secrets and variables → Actions 添加 Secret `DEEPSEEK_API_KEY`，以及 Variable `DEEPSEEK_MODEL`。模型填写 OpenCode 的 DeepSeek provider 标识，例如 `deepseek/deepseek-chat`；如果 DeepSeek 控制台提供的模型名不同，按 OpenCode provider 文档填写。可参考 [DeepSeek API 文档](https://api-docs.deepseek.com/) 和 [OpenCode DeepSeek provider 文档](https://opencode.ai/docs/providers/#deepseek)。
-3. 在 API 项目单独设置费用控制和用量告警。该工作流只能限制次数和时长，不能保证美元硬上限；预算通知是否阻止消费以服务商设置为准。
-4. Settings → Actions → General 允许 GitHub Actions 创建 PR。确认仓库允许使用工作流中固定 SHA 的 Actions。
-5. 确认当前人工 worker 修复已提交，核对任务清单，然后添加 Variable `UNATTENDED_ENABLED=true`，在 Actions → Unattended DeepSeek → Run workflow 首次手动运行。
+每30分钟计划触发，控制器更新到main也立即触发；成功交付后通过workflow_dispatch自动排队下一项。GitHub schedule可能延迟；相同concurrency串行。清单完成时不调用模型。
+默认启用，Variable `UNATTENDED_ENABLED=false` 可暂停新开发任务，正在运行的任务用Cancel workflow取消。
+Secret `DEEPSEEK_API_KEY` 为必要条件；Variable `DEEPSEEK_MODEL` 可覆盖默认的 `deepseek/deepseek-chat`。缺密钥明确失败，不能宣称运行成功。
+模型调用有真实API费用；单轮最多3次编码/修复、70分钟任务上限，并限制差异规模。费用硬上限应在API提供方设置。
+GitHub_TOKEN仅在发布步骤注入，具有仓库contents/actions写权限；模型步骤不获得该token。快进更新自动拒绝并发人工提交，不强推共享分支。分支保护若禁止直接更新会明确报错，不绕过保护。
 
-本地连接如果没有 Secrets/Actions 管理权限，需要仓库管理员在网页完成第2、4、5项；不要把 API key 发到聊天中。
+## 失败续跑与门禁
 
-## 运行和暂停
+失败且路径检查通过的改动提交到 `automation/retry-<源提交前12位>`，下轮从同一基线恢复，不重复丢弃已写代码。禁止路径改动不持久化。测试/审查失败不会交付目标分支；每轮日志保存在Actions，任务复选框仅由受信控制器在验证通过后修改。
+控制代码、提示和验证命令从本次main工作流提交读取，独立于模型编辑目录。拒绝工作流/控制器/凭据/运行数据/既有package测试命令改动以及源码符号链接。固定安装/构建/测试在独立Docker容器中的源码副本执行，不挂载控制器、状态、Git目录、Docker socket或任何凭据；只有测试脚本只读挂载和隔离测试库可见，原始候选树不受测试写入影响；独立审查覆盖完整有界差异，包含新文件。
+已通过验证的树在发布前再次核对；代码变动或目标基线变化会阻止自动交付。自动模型审查仍可能漏报，不代表真实人格质量评估。
 
-自动计划为每天北京时间 09:00 和 21:00（UTC 01:00/13:00），GitHub schedule 可能延迟。整个任务最多45分钟，其中编码25分钟、最终验证12分钟；同工作流串行，单轮最多两次修复尝试。限额不是精确费用上限。
+## 部署状态
 
-Actions 显示 queued/in progress/completed/failure；每轮摘要区分编码与验证结果。失败的验证会产生失败状态；安全路径检查通过时可保留草稿 PR，草稿不代表通过验收。无人值守不会自动合并，待人工审查后进入下一任务。
-
-暂停：将 `UNATTENDED_ENABLED` 改为 `false`；已经运行的任务需要在 Actions 点击 Cancel workflow。没有未完成明确任务时，编码器停止改动。
-
-每轮从目标分支重新开始，PR 分支是可替换的草稿，不要在该分支手工开发。修复未合并草稿时可能重新实施同一任务；若需保留草稿人工修改，请先暂停自动执行。
-
-## 权限和限制
-
-GITHUB_TOKEN 仅用于创建分支与草稿 PR，不需要整个账号凭据；checkout 不持久保存 token，编码步骤不传入 GitHub 写 token。工作流没有 PR/issue 评论触发入口，避免外部用户提交的指令触发编码。自动改动禁止工作流、运行数据和自身验证脚本等路径。
-
-运行由临时 GitHub 托管机器执行，固定 OpenCode 版本并通过 DeepSeek provider 调用模型。编码步骤从 GitHub Secret 读取 DeepSeek API key；代理的 shell 和仓库外路径访问被禁用，验证由独立工作流脚本执行。不要配置生产服务密钥。编码质量、隐私行为与产品人格仍需独立审查与完整验收。当前仅列出 F3b 收尾任务，后续阶段需要更新清单。
+本流程负责全自动开发交付。当前没有已验证的生产服务器、模型/Embedding运行凭据、QQ连接和恢复演练，不能自动宣布机器人上线。
+F8会产出新版部署文件、备份恢复与健康检查；真实上线必须有可用目标和凭据，并遵守实际API/生产数据门禁。源码提交、测试成功和服务在线是三个不同状态。
