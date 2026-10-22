@@ -6,6 +6,7 @@ import {allowedPath, assertManifest, reviewApproved, selectTask, publicationTarg
 
 const control = dirname(fileURLToPath(import.meta.url));
 const tasksPath = 'docs/implementation/unattended-tasks.md';
+const retryFeedbackPath = 'docs/implementation/unattended-retry-feedback.md';
 const target = 'feat/companion-v3';
 function git(args, cwd=process.cwd(), env=process.env) {
   return execFileSync('git', ['-c','core.hooksPath=/dev/null',...args], {cwd,env,encoding:'utf8',maxBuffer:4*1024*1024,timeout:60000}).trim();
@@ -70,6 +71,10 @@ export async function prepare() {
     git(['checkout','--detach','FETCH_HEAD']);
     state.sourceHead=git(['rev-parse','HEAD']);
     state.resumed=true;
+    if(existsSync(retryFeedbackPath)) {
+      const saved=readFileSync(retryFeedbackPath,'utf8');
+      if(saved.startsWith('# 自动重试反馈（'+task.id+'）')) state.retryFeedback=saved;
+    }
   }
   guard(state);
   state.safe=true;
@@ -146,7 +151,9 @@ async function review(state) {
 
 export async function cycle() {
   const state=load();
-  let feedback='Implement the selected task. Do not mark the task checkbox; the trusted controller does this only after tests and review.';
+  let feedback=state.retryFeedback
+    ? '修复上一轮审查提出的全部问题。先核验每条意见对应的代码和真实测试行为；不能证明时调整实现、契约和文档，不能弱化测试或声称未验证行为。不要勾选任务。\n\n上一轮反馈：\n'+state.retryFeedback
+    : 'Implement the selected task. Do not mark the task checkbox; the trusted controller does this only after tests and review.';
   if(!process.env.DEEPSEEK_API_KEY) throw new Error('Missing GitHub Actions secret DEEPSEEK_API_KEY');
   const probe=await fetch('https://api.deepseek.com/chat/completions',{
     method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+process.env.DEEPSEEK_API_KEY},
@@ -184,6 +191,8 @@ export async function cycle() {
       state.verified=true;
       const verdict=await review(state);
       state.reviewed=true;
+      // Remove prior-run diagnostics after the reviewed fix no longer needs them.
+      if(existsSync(retryFeedbackPath)) rmSync(retryFeedbackPath);
       // Checkbox mutation is trusted, not part of the agent's proposal.
       const backlog=readFileSync(tasksPath,'utf8');
       if(!backlog.includes(state.task.line)) throw new Error('Selected task changed during execution');
@@ -230,6 +239,12 @@ export async function publish() {
   } else {
     // A stale successful proposal is still unfinished work, so restore its trusted checkbox.
     writeFileSync(tasksPath,retryBacklog(readFileSync(tasksPath,'utf8'),state.task));
+    guard(state);
+    git(['add','--all']);
+  }
+  if(destination!=='target') {
+    const details=state.error || 'The target branch advanced before publication; rebase and rerun all checks.';
+    writeFileSync(retryFeedbackPath,'# 自动重试反馈（'+state.task.id+'）\n\n请逐项处理上轮失败意见，再重跑验证和独立审查。\n\n'+details+'\n');
     guard(state);
     git(['add','--all']);
   }
