@@ -30,7 +30,7 @@ jobs:
         run: |
           node --check .github/codex/controller.mjs
           node --check .github/codex/parallel-integrator.mjs
-          node --test .github/codex/policy.test.mjs .github/codex/controller.test.mjs
+          node --test .github/codex/policy.test.mjs .github/codex/controller.test.mjs .github/codex/parallel-integrator.test.mjs
   parallel-workers:
     needs: controller-tests
     if: github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
