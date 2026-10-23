@@ -41,3 +41,13 @@ test('API errors do not disclose response body or secrets',async()=>{
  const c=resolveApiConfig({DEEPSEEK_API_KEY:'secret-value'});
  await assert.rejects(()=>chatCompletion(c.coding,[],{},async()=>({ok:false,status:401,text:async()=> 'secret-value'})),e=>e.message==='Configured model API HTTP 401');
 });
+
+test('reject new coding secret without coding URL rather than sending it to DeepSeek',()=>{
+ assert.throws(()=>resolveApiConfig({DEEPSEEK_API_KEY:'legacy-key',CODING_API_KEY:'custom-key'}),/CODING_API_BASE_URL/);
+});
+test('reject new review secret without review URL rather than sending it to coding provider',()=>{
+ assert.throws(()=>resolveApiConfig({DEEPSEEK_API_KEY:'legacy-key',REVIEW_API_KEY:'review-key'}),/REVIEW_API_BASE_URL/);
+});
+test('reject custom coding model without a coding URL',()=>{
+ assert.throws(()=>resolveApiConfig({DEEPSEEK_API_KEY:'legacy-key',CODING_API_MODEL:'my-model'}),/CODING_API_BASE_URL/);
+});
