@@ -1,0 +1,15 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import { and,eq } from 'drizzle-orm';
+import { createDatabase } from '../src/database/database.js'; import { migrateDatabase } from '../src/database/migrate.js'; import { ProactiveCommitmentService } from '../src/proactive/proactive-commitment-service.js';
+import { characters,people,platformIdentities,conversations,conversationMembers,messages,proactivePermissions,conversationPolicies,commitments } from '../src/database/schema/index.js'; import { trustActorContext } from '../src/identity/trust.js'; import { uuid,requireCompatDatabaseUrl } from './helpers.js';
+test('commitments require explicit due time and private plus group authorization and unknown receipt is never resent',async()=>{
+ const db=createDatabase(requireCompatDatabaseUrl()),s=uuid(),c=uuid(),p=uuid(),i=uuid(),cv=uuid(),m=uuid(),clock={value:new Date('2026-10-23T10:00:00Z')}; try { await migrateDatabase(db);
+ await db.db.insert(characters).values({id:c,name:`pro-${s}`}); await db.db.insert(people).values({id:p}); await db.db.insert(platformIdentities).values({id:i,personId:p,platform:'qq',platformUserId:`pro-${s}`,verificationMethod:'test'});
+ await db.db.insert(conversations).values({id:cv,characterId:c,platform:'qq',platformConversationId:`pro-${s}`,kind:'group'}); await db.db.insert(conversationMembers).values({conversationId:cv,personId:p,confirmedAt:new Date()}); await db.db.insert(messages).values({id:m,conversationId:cv,personId:p,platform:'qq',platformEventId:`pro-${s}`,role:'user',text:'提醒我周五复习'});
+ await db.db.insert(proactivePermissions).values({characterId:c,personId:p,enabled:true}); await db.db.insert(conversationPolicies).values({conversationId:cv,proactiveEnabled:true});
+ const actor=trustActorContext({personId:p,characterId:c,conversationId:cv,platformIdentityId:i,conversationKind:'group' as const,isPartner:false,circleIds:[],participantIds:[p],linkedPersonIds:[p],participantsComplete:true}); const svc=new ProactiveCommitmentService(db,()=>new Date(clock.value));
+ await assert.rejects(svc.schedule(actor,m,{description:'复习'} as any)); await db.db.update(proactivePermissions).set({enabled:false}).where(and(eq(proactivePermissions.characterId,c),eq(proactivePermissions.personId,p))); await assert.rejects(svc.schedule(actor,m,{description:'复习',dueAt:new Date('2026-10-24T12:00:00Z')}),/disabled/); await db.db.update(proactivePermissions).set({enabled:true}).where(and(eq(proactivePermissions.characterId,c),eq(proactivePermissions.personId,p))); const item=await svc.schedule(actor,m,{description:'复习',dueAt:new Date('2026-10-24T12:00:00Z')}); assert.equal(item.status,'scheduled');
+ clock.value=new Date('2026-10-24T14:00:00Z'); assert.equal(await svc.deliverDue(item.id,async()=>({kind:'receipt',receipt:'x'})),'quiet_window');
+ clock.value=new Date('2026-10-25T00:00:01Z'); const delivered=await svc.deliverDue(item.id,async()=>({kind:'receipt_unknown',errorCode:'receipt_unknown'})); assert.equal(delivered,'receipt_unknown');
+ assert.equal(await svc.deliverDue(item.id,async()=>{throw new Error('must not resend');}),'already_claimed');
+ } finally { await db.close(); }
+});
