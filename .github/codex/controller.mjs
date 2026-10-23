@@ -231,8 +231,11 @@ export async function cycle() {
   // instead of repeating full verification and review three times in one job.
   for(let attempt=0;attempt<1;attempt++) {
     try {
-      summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/3');
-      const prompt=readFileSync(join(control,'prompt.md'),'utf8')+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\n\n'+feedback;
+      summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/1');
+      const laneBoundary=state.parallel
+        ? '\n\nPARALLEL LANE '+parallelLane+': GPT-authored spec is docs/implementation/gpt-parallel-spec-v1.md. You may ONLY edit your lane module and lane-named test files. Do not edit progress docs, retry docs, manifests, schema, identity, shared CLI, workflows, or other lane files. Do not invent live API or QQ test results. Implement actual behavior and meaningful tests.'
+        : '';
+      const prompt=readFileSync(join(control,'prompt.md'),'utf8')+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+laneBoundary+'\n\n'+feedback;
       // Instructions are in the initial message, so no outside-directory attachment permission is needed.
       const result=execFileSync('timeout',['--kill-after=10s','420s','opencode','run','--print-logs','--log-level','ERROR','--model',codingProvider.selectedModel,'--agent','build',prompt],{
         env:{...safeEnv(),DEEPSEEK_API_KEY:apis.coding.legacy?apis.coding.apiKey:'',CODING_API_KEY:apis.coding.apiKey,OPENCODE_CONFIG:configPath},
