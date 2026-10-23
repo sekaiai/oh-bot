@@ -262,10 +262,10 @@ export async function cycle() {
           (parallelLane==='persona'
             ? 'Read packages/companion/src/database/schema/identity.ts, packages/companion/src/database/schema/operations.ts, packages/companion/src/identity/trust.ts and packages/companion/test/helpers.ts. Then WRITE packages/companion/src/persona/ service files and persona-*.test.ts tests. '
             : 'Read packages/companion/src/domain/contracts.ts, packages/companion/src/identity/trust.ts and existing src/adapters/napcat/parser.ts. Then WRITE packages/companion/src/channels/onebot/ adapter files and onebot-*.test.ts tests. ')+
-          '\\n\\n')
+          '\n\n')
         : '';
       const baseInstructions=state.parallel ? '' : readFileSync(join(control,'prompt.md'),'utf8');
-      const prompt=parallelHeader+baseInstructions+'\\n\\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\\n\\n'+feedback;
+      const prompt=parallelHeader+baseInstructions+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\n\n'+feedback;
       // Instructions are in the initial message, so no outside-directory attachment permission is needed.
       const result=execFileSync('timeout',['--kill-after=10s','420s','opencode','run','--print-logs','--log-level','ERROR','--model',codingProvider.selectedModel,'--agent','build',prompt],{
         env:{...safeEnv(),DEEPSEEK_API_KEY:apis.coding.legacy?apis.coding.apiKey:'',CODING_API_KEY:apis.coding.apiKey,OPENCODE_CONFIG:configPath},
