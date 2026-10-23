@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveApiConfig,normalizeBaseUrl,openCodeProvider,chatCompletion,probeApi} from './api-config.mjs';
+import {resolveApiConfig,normalizeBaseUrl,openCodeProvider,chatCompletion,probeApi,chatCompletionWithRetry} from './api-config.mjs';
 
 test('legacy DeepSeek configuration remains functional',()=>{
  const c=resolveApiConfig({DEEPSEEK_API_KEY:'legacy-key'});
@@ -78,4 +78,26 @@ test('coding API probe fails fast for authentication errors',async()=>{
   transport:async()=>{calls++;return {ok:false,status:401};}
  }),/HTTP 401/);
  assert.equal(calls,1);
+});
+
+
+test('retrying chat completions preserve the review payload and JSON response format',async()=>{
+ const c=resolveApiConfig({DEEPSEEK_API_KEY:'legacy-key'});
+ const messages=[{role:'system',content:'return JSON'},{role:'user',content:'review'}];
+ const params={temperature:0,max_tokens:4096,response_format:{type:'json_object'}};
+ let calls=0;
+ const delays=[];
+ const output=await chatCompletionWithRetry(c.review,messages,params,{
+  sleep:async ms=>{delays.push(ms);},
+  transport:async(url,options)=>{
+   calls++;
+   assert.equal(url,c.review.baseUrl+'/chat/completions');
+   assert.deepEqual(JSON.parse(options.body),{model:c.review.model,messages,...params});
+   if(calls===1)return {ok:true,json:async()=>({choices:[{message:{content:''}}]})};
+   return {ok:true,json:async()=>({choices:[{message:{content:'{"approved":true,"findings":[]}'}}]})};
+  }
+ });
+ assert.equal(output,'{"approved":true,"findings":[]}');
+ assert.equal(calls,2);
+ assert.deepEqual(delays,[250]);
 });

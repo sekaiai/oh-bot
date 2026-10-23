@@ -106,16 +106,19 @@ export async function chatCompletion(api,messages,params={},transport=fetch) {
 // The coding provider can intermittently return an empty completion or transient
 // transport error. Retry only those failures; permanent configuration/auth errors
 // remain immediate. This bounded probe runs before OpenCode starts.
-export async function probeApi(api,{transport=fetch,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
+export async function chatCompletionWithRetry(api,messages,params={},{
+  transport=fetch,
+  sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+}={}) {
   for (let attempt=0; attempt<3; attempt++) {
     try {
-      return await chatCompletion(api,[{role:'user',content:'Reply OK.'}],{max_tokens:16},transport);
+      return await chatCompletion(api,messages,params,transport);
     } catch (error) {
       const message=error instanceof Error ? error.message : '';
       const transient =
         message === 'Configured model API did not return a non-empty chat completion' ||
         message === 'Configured model API returned invalid JSON' ||
-        /Configured model API HTTP (429|5\d\d)$/.test(message) ||
+        /Configured model API HTTP (429|5\\d\\d)$/.test(message) ||
         error?.name === 'TimeoutError' ||
         error?.name === 'AbortError' ||
         error instanceof TypeError;
@@ -123,7 +126,16 @@ export async function probeApi(api,{transport=fetch,sleep=ms=>new Promise(resolv
       await sleep(250 * (attempt + 1));
     }
   }
-  throw new Error('Configured model API probe failed');
+  throw new Error('Configured model API request failed');
+}
+
+export async function probeApi(api,options={}) {
+  return chatCompletionWithRetry(
+    api,
+    [{role:'user',content:'Reply OK.'}],
+    {max_tokens:16},
+    options
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === 'check') {
