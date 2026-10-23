@@ -1,0 +1,1 @@
+ALTER TABLE "companion"."conversations" ADD COLUMN "roster_invalidated_at" timestamp with time zone;

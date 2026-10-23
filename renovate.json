@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update image references hidden behind Compose variable defaults",
+      "managerFilePatterns": [
+        "/^docker\\/docker-compose\\.yml$/",
+        "/^docker\\/\\.env\\.example$/"
+      ],
+      "matchStrings": [
+        "(?:DS2API_IMAGE|NAPCAT_IMAGE)(?:=|:-)(?<depName>[^:\\n\\s}]+\\/[^:\\n\\s}]+):(?<currentValue>[^}\\n\\s]+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group Docker image updates",
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "docker images"
+    }
+  ]
+}

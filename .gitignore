@@ -1,0 +1,22 @@
+.DS_Store
+.env
+docker/.env
+docker/data/
+data/affection/
+docker/napcat/config/
+docker/ntqq/
+docker/napcat/qrcode.png
+dist
+node_modules
+packages/compatibility/.state/
+/docker/ntqq
+/docker/napcat
+# Local runtime state, credentials and private conversations
+data/*.json
+!data/*.example.json
+data/plugins/*.json
+!data/plugins/*.example.json
+data/plugins/**/*.json
+docker/ds2api/config.json
+packages/companion/.env
+packages/compatibility/.env

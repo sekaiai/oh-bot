@@ -1,0 +1,1 @@
+ALTER TABLE "companion"."memory_revisions" ADD CONSTRAINT "memory_revisions_revision_positive" CHECK ("companion"."memory_revisions"."revision" >= 1);

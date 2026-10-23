@@ -1,0 +1,30 @@
+{
+  "name": "@oh-bot/compatibility",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "tsx --test test/config.test.ts test/isolation.test.ts test/run.test.ts test/read-only-memory-connect.test.ts",
+    "test:cli": "tsx --test test/run.test.ts",
+    "test:integration": "tsx --test test/persistence.test.ts test/worker-sanitization.test.ts test/graph.test.ts test/read-only-memory.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@langchain/langgraph": "1.5.1",
+    "@langchain/langgraph-checkpoint-postgres": "1.1.0",
+    "@langchain/openai": "1.6.3",
+    "better-sqlite3": "12.11.1",
+    "mem0ai": "3.3.1",
+    "pg": "8.23.1",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "8.23.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

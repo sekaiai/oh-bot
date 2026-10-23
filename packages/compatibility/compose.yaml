@@ -1,0 +1,21 @@
+services:
+  compatibility-db:
+    image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+    container_name: oh-bot-task2b-compat-db
+    environment:
+      POSTGRES_USER: compat
+      POSTGRES_PASSWORD: compat-test-only
+      POSTGRES_DB: oh_bot_compat
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - oh-bot-compat-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compat -d oh_bot_compat"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  oh-bot-compat-pgdata:
+    name: oh-bot-compat-pgdata
