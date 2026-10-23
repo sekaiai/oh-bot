@@ -14,9 +14,13 @@ import type { DeliveryResult } from '../../transactions/delivery-service.js';
 const MAX_FRAME = 256 * 1024;
 const MAX_TEXT = 32_000;
 const MAX_TIMESTAMP_SECONDS = 8_640_000_000_000;
-const ID = /^(?!local-cli:)[0-9]{1,32}$/;
+const ACCOUNT_ID = /^[1-9][0-9]{0,31}$/;
+const SIGNED_MESSAGE_ID = /^(?:0|[1-9][0-9]{0,31}|-[1-9][0-9]{0,31})$/;
+
+type InboundMetadata = { mentionedSelf: boolean };
 
 type NormalizedOneBotEvent = {
+  platform: 'qq';
   eventId: string;
   senderPlatformId: string;
   conversationPlatformId: string;
@@ -34,7 +38,11 @@ type OneBotConfig = {
   selfId?: string;
   characterId: string;
   database: Database;
-  onInbound: (event: NormalizedOneBotEvent, evidence: ChannelEvidence) => void | Promise<void>;
+  onInbound: (
+    event: NormalizedOneBotEvent,
+    evidence: ChannelEvidence,
+    metadata?: InboundMetadata,
+  ) => void | Promise<void>;
   requestTimeoutMs?: number;
   reconnectMinMs?: number;
   reconnectMaxMs?: number;
@@ -48,20 +56,24 @@ type OneBotAdapter = {
 };
 
 type PendingRequest = {
+  socket: WebSocket;
   resolve: (value: unknown) => void;
   timer: NodeJS.Timeout;
 };
 
 type RawNumericId = { key: string; value: string };
 
-function platformId(value: unknown): string | null {
+function numericString(value: unknown, pattern: RegExp): string | null {
   const id = typeof value === 'string'
     ? value
     : typeof value === 'number' && Number.isSafeInteger(value)
       ? String(value)
       : '';
-  return ID.test(id) ? id : null;
+  return pattern.test(id) ? id : null;
 }
+
+const accountId = (value: unknown) => numericString(value, ACCOUNT_ID);
+const messageId = (value: unknown) => numericString(value, SIGNED_MESSAGE_ID);
 
 function timestampFromSeconds(value: unknown): string | null {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_TIMESTAMP_SECONDS) {
@@ -75,18 +87,25 @@ function timestampFromSeconds(value: unknown): string | null {
 }
 
 export function normalizeOneBotEvent(value: unknown): NormalizedOneBotEvent | null {
+  return normalizeOneBotMessage(value)?.event ?? null;
+}
+
+function normalizeOneBotMessage(
+  value: unknown,
+): { event: NormalizedOneBotEvent; metadata: InboundMetadata } | null {
   if (!value || typeof value !== 'object') return null;
   const event = value as Record<string, unknown>;
   if (event.post_type !== 'message' || !['private', 'group'].includes(String(event.message_type))) return null;
 
-  const senderId = platformId(event.user_id);
-  const eventId = platformId(event.message_id);
-  const selfId = platformId(event.self_id);
-  const groupId = event.message_type === 'group' ? platformId(event.group_id) : null;
+  const senderId = accountId(event.user_id);
+  const eventId = messageId(event.message_id);
+  const selfId = accountId(event.self_id);
+  const groupId = event.message_type === 'group' ? accountId(event.group_id) : null;
   const timestamp = timestampFromSeconds(event.time);
   if (!senderId || !eventId || !selfId || !timestamp || (event.message_type === 'group' && !groupId)) return null;
 
   let text = '';
+  let mentionedSelf = false;
   if (typeof event.message === 'string') {
     text = event.message;
   } else if (Array.isArray(event.message)) {
@@ -94,24 +113,35 @@ export function normalizeOneBotEvent(value: unknown): NormalizedOneBotEvent | nu
       if (!part || typeof part !== 'object') return null;
       const segment = part as Record<string, unknown>;
       const data = segment.data as Record<string, unknown> | undefined;
-      if (segment.type !== 'text' || typeof data?.text !== 'string') return null;
-      text += data.text;
+      if (segment.type === 'text' && typeof data?.text === 'string') {
+        text += data.text;
+      } else if (segment.type === 'at' && (typeof data?.qq === 'string' || typeof data?.qq === 'number')) {
+        const targetId = accountId(data.qq);
+        if (!targetId) return null;
+        if (targetId === selfId) mentionedSelf = true;
+      } else {
+        return null;
+      }
       if (text.length > MAX_TEXT) return null;
     }
   } else {
     return null;
   }
-  if (!text.trim() || text.length > MAX_TEXT) return null;
+  if ((!text.trim() && !mentionedSelf) || text.length > MAX_TEXT) return null;
 
   return {
-    eventId,
-    senderPlatformId: senderId,
-    conversationPlatformId: groupId ?? senderId,
-    conversationKind: groupId ? 'group' : 'private',
-    text,
-    timestamp,
-    participantPlatformIds: [],
-    participantsComplete: false,
+    event: {
+      platform: 'qq',
+      eventId,
+      senderPlatformId: senderId,
+      conversationPlatformId: groupId ?? senderId,
+      conversationKind: groupId ? 'group' : 'private',
+      text,
+      timestamp,
+      participantPlatformIds: [],
+      participantsComplete: false,
+    },
+    metadata: { mentionedSelf },
   };
 }
 
@@ -119,7 +149,7 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
   if (!config.database || !config.characterId || typeof config.onInbound !== 'function') {
     throw new Error('OneBot database, character, and inbound callback required');
   }
-  if (config.enabled && (!config.url || !config.accessToken?.trim() || !config.selfId || !ID.test(config.selfId))) {
+  if (config.enabled && (!config.url || !config.accessToken?.trim() || !config.selfId || !ACCOUNT_ID.test(config.selfId))) {
     throw new Error('enabled OneBot requires URL, token, and self ID');
   }
   if (config.enabled) {
@@ -134,17 +164,21 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
   let stopped = true;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let retry = 0;
+  let generation = 0;
+  const ownedSockets = new Set<WebSocket>();
   const pending = new Map<string, PendingRequest>();
 
-  const rejectPending = () => {
+  const rejectPending = (onlySocket?: WebSocket) => {
     for (const [echo, request] of pending) {
+      if (onlySocket && request.socket !== onlySocket) continue;
       clearTimeout(request.timer);
       request.resolve({ kind: 'unknown', errorCode: 'onebot_connection_lost' });
       pending.delete(echo);
     }
   };
 
-  const onMessage = (raw: WebSocket.RawData) => {
+  const onMessage = (current: WebSocket, ownGeneration: number, raw: WebSocket.RawData) => {
+    if (stopped || ownGeneration !== generation || socket !== current) return;
     const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer);
     if (buffer.length > MAX_FRAME) return;
 
@@ -165,34 +199,39 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
       return;
     }
 
-    const event = normalizeOneBotEvent(payload);
+    const normalized = normalizeOneBotMessage(payload);
+    const event = normalized?.event;
     if (!event || event.senderPlatformId === config.selfId ||
-      (payload.self_id !== undefined && platformId(payload.self_id) !== config.selfId)) return;
+      (payload.self_id !== undefined && accountId(payload.self_id) !== config.selfId)) return;
 
     const evidence = createVerifiedChannelEvidence(
       'qq', event.conversationPlatformId, event.senderPlatformId, event.conversationKind,
     );
-    Promise.resolve(config.onInbound(event, evidence)).catch(() => {});
+    Promise.resolve(config.onInbound(event, evidence, normalized.metadata)).catch(() => {});
   };
 
-  const connect = () => {
-    if (stopped || !config.enabled) return;
+  const connect = (ownGeneration: number) => {
+    if (stopped || !config.enabled || ownGeneration !== generation) return;
     const current = new WebSocket(config.url!, {
       headers: { Authorization: `Bearer ${config.accessToken}` },
       maxPayload: MAX_FRAME,
     });
     socket = current;
-    current.on('message', onMessage);
-    current.on('open', () => { retry = 0; });
+    ownedSockets.add(current);
+    current.on('message', (raw) => onMessage(current, ownGeneration, raw));
+    current.on('open', () => {
+      if (!stopped && ownGeneration === generation && socket === current) retry = 0;
+    });
     current.on('close', () => {
+      ownedSockets.delete(current);
+      rejectPending(current);
+      if (ownGeneration !== generation || stopped || socket !== current) return;
       if (socket === current) socket = null;
-      rejectPending();
-      if (stopped) return;
       const delay = Math.min(
         config.reconnectMaxMs ?? 30_000,
         (config.reconnectMinMs ?? 500) * 2 ** Math.min(retry++, 8),
       );
-      reconnectTimer = setTimeout(connect, delay);
+      reconnectTimer = setTimeout(() => connect(ownGeneration), delay);
       reconnectTimer.unref();
     });
     current.on('error', () => {});
@@ -212,6 +251,7 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
 
     const echo = randomUUID();
     const entry: PendingRequest = {
+      socket: current,
       resolve,
       timer: setTimeout(() => {
         pending.delete(echo);
@@ -243,35 +283,44 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
   });
 
   const start = async () => {
-    if (!config.enabled) return;
+    if (!config.enabled || !stopped) return;
     stopped = false;
-    connect();
+    generation += 1;
+    connect(generation);
   };
 
   const stop = async () => {
     stopped = true;
+    generation += 1;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = null;
     rejectPending();
-    const current = socket;
     socket = null;
-    if (!current) return;
-    await new Promise<void>((resolve) => {
-      if (current.readyState === WebSocket.CLOSED) return resolve();
-      current.once('close', () => resolve());
-      current.close(1000, 'shutdown');
-      setTimeout(() => {
-        current.terminate();
+    const closing = [...ownedSockets];
+    await Promise.all(closing.map((current) => new Promise<void>((resolve) => {
+      if (current.readyState === WebSocket.CLOSED) {
+        ownedSockets.delete(current);
+        return resolve();
+      }
+      current.once('close', () => {
+        ownedSockets.delete(current);
         resolve();
-      }, 1_000).unref();
-    });
+      });
+      current.close(1000, 'shutdown');
+      const timeout = setTimeout(() => {
+        current.terminate();
+        ownedSockets.delete(current);
+        resolve();
+      }, 1_000);
+      timeout.unref();
+    })));
   };
 
   const fetchCompleteRoster = async (groupId: string) => {
-    if (!ID.test(groupId)) throw new Error('invalid group ID');
+    if (!ACCOUNT_ID.test(groupId)) throw new Error('invalid group ID');
     const response = await request(
       'get_group_member_list',
-      { group_id: `__onebot_numeric_id__` },
+      { group_id: '__onebot_numeric_id__' },
       { key: 'group_id', value: groupId },
     ) as Record<string, any>;
     if (response?.kind || response?.status !== 'ok' || response?.retcode !== 0 ||
@@ -280,7 +329,7 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
     }
     const memberIds = response.data.map((member: unknown) => {
       if (!member || typeof member !== 'object') return null;
-      return platformId((member as Record<string, unknown>).user_id);
+      return accountId((member as Record<string, unknown>).user_id);
     });
     if (memberIds.some((id: string | null) => !id) || new Set(memberIds).size !== memberIds.length) {
       throw new Error('invalid roster RPC');
@@ -306,7 +355,7 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
           eq(conversations.characterId, config.characterId),
         ))
         .limit(1);
-      if (!row || row.platform !== 'qq' || !ID.test(row.channel) ||
+      if (!row || row.platform !== 'qq' || !ACCOUNT_ID.test(row.channel) ||
         (row.kind !== 'private' && row.kind !== 'group')) {
         return { kind: 'not_sent', errorCode: 'invalid_delivery_target' };
       }
@@ -321,14 +370,14 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
       const action = row.kind === 'group' ? 'send_group_msg' : 'send_private_msg';
       const response = await request(
         action,
-        { [targetKey]: '__onebot_numeric_id__', message: text },
+        { [targetKey]: '__onebot_numeric_id__', message: text, auto_escape: true },
         { key: targetKey, value: row.channel },
       ) as Record<string, any>;
       if (response?.kind === 'not_sent') {
         return { kind: 'not_sent', errorCode: 'onebot_disconnected_before_send' };
       }
       if (response?.kind) return { kind: 'unknown', errorCode: 'onebot_send_unknown' };
-      const receipt = platformId(response?.data?.message_id);
+      const receipt = messageId(response?.data?.message_id);
       if (response?.status === 'ok' && response?.retcode === 0 && receipt) {
         return { kind: 'receipt', receipt };
       }
