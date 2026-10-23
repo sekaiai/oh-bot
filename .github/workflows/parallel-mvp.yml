@@ -1,27 +1,17 @@
 name: Parallel Companion Coding
 
+
+# PAUSED by request: no scheduled, push, PR or manual coding jobs.
+# Restore triggers and job conditions only on explicit instruction.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '15,45 * * * *'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/codex/**'
-      - '.github/workflows/parallel-mvp.yml'
-  push:
-    branches: [main]
-    paths:
-      - '.github/codex/controller.mjs'
-      - '.github/codex/policy.mjs'
-      - '.github/codex/parallel-integrator.mjs'
-      - '.github/workflows/parallel-mvp.yml'
 
 permissions:
   contents: read
 
 jobs:
   controller-tests:
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -38,7 +28,7 @@ jobs:
           node --test .github/codex/policy.test.mjs .github/codex/controller.test.mjs .github/codex/parallel-integrator.test.mjs
   parallel-workers:
     needs: controller-tests
-    if: github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 38
     strategy:
@@ -136,7 +126,7 @@ jobs:
         run: node ../control/.github/codex/controller.mjs publish
   integrate:
     needs: [controller-tests, parallel-workers]
-    if: always() && needs.controller-tests.result == 'success' && github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     concurrency:
