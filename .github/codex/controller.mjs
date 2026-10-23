@@ -250,9 +250,9 @@ export async function cycle() {
   let lastError;
   // One bounded attempt per workflow run. Persist failures for the next scheduled run
   // instead of repeating full verification and review three times in one job.
-  for(let attempt=0;attempt<1;attempt++) {
+  for(let attempt=0;attempt<(state.parallel?2:1);attempt++) {
     try {
-      summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/1');
+      summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/'+(state.parallel?2:1));
       const parallelHeader=state.parallel
         ? ('You are a coding agent with ONLY read, glob, grep, edit, write tools. Bash and shell DO NOT EXIST. NEVER call bash. '+
           'Write actual source files and tests with the write/edit tool BEFORE ending. A read-only answer is a failed task. '+
@@ -265,7 +265,7 @@ export async function cycle() {
           '\n\n')
         : '';
       const baseInstructions=state.parallel ? '' : readFileSync(join(control,'prompt.md'),'utf8');
-      const prompt=parallelHeader+baseInstructions+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\n\n'+feedback;
+      const prompt=parallelHeader+baseInstructions+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\n\n'+feedback+(attempt>0?'\n\nYour first attempt created ZERO files. Do not call bash. Immediately use write/edit tools to create a minimal complete source module and matching tests.':'');
       // Instructions are in the initial message, so no outside-directory attachment permission is needed.
       const result=execFileSync('timeout',['--kill-after=10s','420s','opencode','run','--print-logs','--log-level','ERROR','--model',codingProvider.selectedModel,'--agent','build',prompt],{
         env:{...safeEnv(),DEEPSEEK_API_KEY:apis.coding.legacy?apis.coding.apiKey:'',CODING_API_KEY:apis.coding.apiKey,OPENCODE_CONFIG:configPath},
@@ -287,6 +287,9 @@ export async function cycle() {
         state.safe=false;lastError=cleanError(guardError);break;
       }
       save(state);
+      // A no-op tool run is not a code defect. Give a parallel worker one
+      // additional short write-first attempt; never repeat full tests for defects.
+      if(!state.parallel || attempt>0 || !lastError.includes('Task remains unfinished: no implementation changes')) break;
     }
   }
   state.error=lastError;
