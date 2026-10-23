@@ -117,7 +117,8 @@ export const businessOutbox = companionSchema.table('business_outbox', {
 
 export const deliveryOutbox = companionSchema.table('delivery_outbox', {
   id: id(),
-  turnId: uuid('turn_id').notNull().unique().references(() => turns.id),
+  // Null is reserved for separately authorized proactive deliveries. Normal chat rows remain turn-linked.
+  turnId: uuid('turn_id').unique().references(() => turns.id),
   conversationId: uuid('conversation_id').notNull().references(() => conversations.id),
   operationKey: text('operation_key').notNull().unique(),
   content: jsonb('content').notNull(),

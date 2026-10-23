@@ -23,3 +23,5 @@ export * from './identity.js';
 export * from './timeline.js';
 export * from './memory.js';
 export * from './operations.js';
+
+export * from './model-usage.js';

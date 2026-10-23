@@ -53,6 +53,14 @@ export const agentDefinitions = companionSchema.table('agent_definitions', {
   id: id(), name: text('name').notNull().unique(), kind: agentKindEnum('kind').notNull(), enabled: boolean('enabled').notNull().default(false), description: text('description').notNull(), inputSchema: jsonb('input_schema').notNull(), outputSchema: jsonb('output_schema').notNull(), toolNames: text('tool_names').array().notNull().default(sql`ARRAY[]::text[]`), modelProfileId: uuid('model_profile_id').references(() => modelProfiles.id), permissions: text('permissions').array().notNull().default(sql`ARRAY[]::text[]`), budget: jsonb('budget').notNull(), createdAt: createdAt(), version: version(),
 }, (t) => [versionCheck('agent_definitions_version_positive')]);
 
+export const toolConfigurations = companionSchema.table('tool_configurations', {
+  toolId: text('tool_id').primaryKey(),
+  enabled: boolean('enabled').notNull().default(false),
+  settings: jsonb('settings').notNull().default(sql`'{}'::jsonb`),
+  version: version(),
+  updatedAt: updatedAt(),
+}, (t) => [check('tool_configurations_tool_id_check', sql`${t.toolId} in ('search', 'weather')`), versionCheck('tool_configurations_version_positive')]);
+
 export const agentRuns = companionSchema.table('agent_runs', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id), personId: uuid('person_id').references(() => people.id), conversationId: uuid('conversation_id').references(() => conversations.id), definitionId: uuid('definition_id').references(() => agentDefinitions.id), parentRunId: uuid('parent_run_id'), turnId: uuid('turn_id').references(() => turns.id), graphVersion: text('graph_version').notNull(), threadId: text('thread_id').notNull(), status: agentRunStatusEnum('status').notNull().default('queued'), task: jsonb('task').notNull(), budget: jsonb('budget').notNull(), usage: jsonb('usage').notNull().default(sql`'{}'::jsonb`), result: jsonb('result'), cancelRequested: boolean('cancel_requested').notNull().default(false), errorCode: text('error_code'), leaseExpiresAt: timestamp('lease_expires_at',{withTimezone:true}), createdAt: createdAt(), updatedAt: updatedAt(), version: version(),
 }, (t) => [foreignKey({name:'agent_runs_parent_fk',columns:[t.parentRunId],foreignColumns:[t.id]}), versionCheck('agent_runs_version_positive')]);
