@@ -1,0 +1,56 @@
+name: CI - local development baseline
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+        env:
+          POSTGRES_USER: compat
+          POSTGRES_PASSWORD: compat-test-only
+          POSTGRES_DB: oh_bot_core_v2_compat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U compat -d oh_bot_core_v2_compat"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CI: 'true'
+      CORE_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_core_v2_compat
+      WORKER_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_worker_compat
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: '11.25.0'
+          run_install: false
+      - name: Prepare isolated test databases
+        env:
+          PGPASSWORD: compat-test-only
+        run: |
+          psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
+      - name: Reject tracked runtime data
+        run: |
+          if git ls-files | grep -E '^(data/(sessions|tasks|rules)\.json|data/plugins/[^/]+\.json|docker/ds2api/config\.json)$'; then
+            echo 'Runtime data or credentials must not be tracked' >&2
+            exit 1
+          fi
+      - name: Build and test with isolated PostgreSQL
+        run: bash .github/codex/check.sh

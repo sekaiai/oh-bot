@@ -1,5 +1,30 @@
 # oh-bot
 
+> **本地开发说明（2026-10-23）**：`main` 现包含原有 QQ Bot + Vue 管理端、独立 `packages/companion` 后端基础模块及 `packages/compatibility` 兼容性实验。两条运行链路尚未打通。GitHub 无人值守编码已暂停，CI 仅执行测试。
+
+## 快速开始
+
+需要 Node.js 24、pnpm 11。
+
+```bash
+git clone https://github.com/sekaiai/oh-bot.git
+cd oh-bot
+cp .env.example .env
+corepack enable
+pnpm install --frozen-lockfile
+pnpm check
+```
+
+- 原 QQ Bot：配置 `.env` 的 NapCat 和模型 API，运行 `pnpm dev`；管理 UI：`pnpm admin:dev`。
+- 新 Companion 基础包：`pnpm --filter @oh-bot/companion typecheck`、`pnpm --filter @oh-bot/companion build`、`pnpm --filter @oh-bot/companion test`。
+- 新 Companion 终端模型聊天：明确设置 `COMPANION_CHAT_API_URL`、`COMPANION_CHAT_API_KEY`、`COMPANION_CHAT_MODEL`，再运行 `pnpm exec tsx packages/companion/src/cli/chat.ts`；当前终端历史仅在进程内。
+- 使用 `docker/docker-compose.yml` 中的 ds2api 前，执行 `cp docker/ds2api/config.example.json docker/ds2api/config.json`，在本地配置账户和密钥。
+- PostgreSQL 集成测试与未完成事项见 [本地开发接手说明](docs/implementation/local-dev-handoff.md)。
+
+**不要提交运行数据**：`data/sessions.json`、`data/tasks.json`、`data/rules.json`、`data/plugins/*.json`、`docker/ds2api/config.json` 均被排除在主分支追踪之外。旧开发分支曾包含真实聊天记录与凭据，需轮换相关凭据；删除主分支文件不等于清除历史记录。
+
+---
+
 基于 NapCat WebSocket 的轻量 QQ Bot 中间层，当前已接入：
 
 - NapCat / OneBot 消息接收与发送
