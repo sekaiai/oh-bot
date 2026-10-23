@@ -115,7 +115,7 @@ export async function probeApi(api,{transport=fetch,sleep=ms=>new Promise(resolv
       const transient =
         message === 'Configured model API did not return a non-empty chat completion' ||
         message === 'Configured model API returned invalid JSON' ||
-        /Configured model API HTTP (429|5\\d\\d)$/.test(message) ||
+        /Configured model API HTTP (429|5\d\d)$/.test(message) ||
         error?.name === 'TimeoutError' ||
         error?.name === 'AbortError' ||
         error instanceof TypeError;
