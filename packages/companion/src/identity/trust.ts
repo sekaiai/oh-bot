@@ -24,6 +24,25 @@ export function isTrustedEvidence(value:unknown, platformUserId?:string, convers
     (conversationKind===undefined||verified.conversationKind===conversationKind)&&
     (channelId===undefined||(value as ChannelEvidence).channelId===channelId);
 }
+export type VerifiedChannelSubject = Readonly<{
+  platform:'qq'|'weixin'|'dingtalk';
+  channelId:string;
+  platformUserId:string;
+  conversationKind:'private'|'group';
+}>;
+export function readVerifiedChannelSubject(value:unknown):VerifiedChannelSubject|undefined {
+  if(typeof value!=='object'||value===null)return undefined;
+  const verified=trustedEvidence.get(value);
+  if(!verified)return undefined;
+  const evidence=value as ChannelEvidence;
+  if(evidence.kind!=='verified-channel'||!['qq','weixin','dingtalk'].includes(evidence.platform)||typeof evidence.channelId!=='string'||!evidence.channelId.trim())return undefined;
+  return Object.freeze({
+    platform:evidence.platform,
+    channelId:evidence.channelId,
+    platformUserId:verified.platformUserId,
+    conversationKind:verified.conversationKind,
+  });
+}
 export type TrustedRosterEvidence = Readonly<{kind:'trusted-roster';platform:'qq'|'weixin'|'dingtalk';channelId:string}>;
 export function createTrustedRosterEvidence(platform:'qq'|'weixin'|'dingtalk', channelId:string, memberIds:readonly string[], observedAt:Date):TrustedRosterEvidence {
   if(!['qq','weixin','dingtalk'].includes(platform)||!channelId.trim()||!Array.isArray(memberIds)||memberIds.length===0||memberIds.length>1000||memberIds.some(id=>typeof id!=='string'||!id.trim())||new Set(memberIds).size!==memberIds.length||!(observedAt instanceof Date)||!Number.isFinite(observedAt.getTime())) throw new Error('valid trusted roster required');

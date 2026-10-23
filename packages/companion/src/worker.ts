@@ -22,14 +22,8 @@ if (process.env.COMPANION_WORKER_QUEUE_SETUP === '1') {
 }
 const database = createDatabase(databaseUrl);
 let worker: Awaited<ReturnType<typeof startCompanionWorker>> | undefined;
-try {
-  worker = await startCompanionWorker({ database, databaseUrl, queuePrefix });
-  process.stdout.write('COMPANION_WORKER_READY\n');
-} catch {
-  process.stderr.write('COMPANION_WORKER_STARTUP_FAILED\n');
-  await database.close();
-  process.exit(1);
-}
+let ready = false;
+let shutdownRequested = false;
 let closing: Promise<void> | undefined;
 const close = () => {
   closing ??= (async () => {
@@ -37,11 +31,30 @@ const close = () => {
   })();
   return closing;
 };
+const requestShutdown = () => {
+  shutdownRequested = true;
+  if (!ready) return;
+  void close().then(() => process.exit(0), () => {
+    process.stderr.write('COMPANION_WORKER_SHUTDOWN_FAILED\n');
+    process.exit(1);
+  });
+};
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.once(signal, () => {
-    void close().then(() => process.exit(0), () => {
+  process.once(signal, requestShutdown);
+}
+try {
+  worker = await startCompanionWorker({ database, databaseUrl, queuePrefix });
+  if (shutdownRequested) {
+    try { await close(); } catch {
       process.stderr.write('COMPANION_WORKER_SHUTDOWN_FAILED\n');
       process.exit(1);
-    });
-  });
+    }
+    process.exit(0);
+  }
+  ready = true;
+  process.stdout.write('COMPANION_WORKER_READY\n');
+} catch {
+  process.stderr.write('COMPANION_WORKER_STARTUP_FAILED\n');
+  await database.close();
+  process.exit(1);
 }

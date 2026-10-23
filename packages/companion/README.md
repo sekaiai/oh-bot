@@ -82,3 +82,29 @@ Type a message and press enter; `/exit` or `/quit` ends the session. Without the
 - No persona persistence, relationship state, memory recall, tool calls, streaming, or retries belong to this task.
 - The gateway does not implement LangChain/LangGraph integration; that remains F5.
 
+## Local Chat Session and History (M1b1)
+
+`src/conversations/chat-session-service.ts` provides `LocalChatSessionService`:
+
+- `acceptMessage(characterId, event, evidence)` reuses `InboundService.accept` for replay protection, membership, message/turn/outbox persistence, then resolves the current `ActorContext`.
+- `readHistory(characterId, evidence, { limit? })` reads only the private conversation identified by the trusted channel evidence. It resolves the person through `IdentityService.resolveActorContext` and requires a confirmed conversation membership; messages from other people are filtered out.
+- Both methods accept **only** trusted in-process channel evidence created by the gateway via `createVerifiedChannelEvidence` after authenticating a platform callback. They do not accept caller-supplied `userId`, `personId`, or `ActorContext` as authorization.
+- Only trusted private conversations are supported in this local MVP stage; group evidence returns `unsupported_conversation_kind`.
+
+Example wiring (gateway code owns evidence creation):
+
+```ts
+const evidence = createVerifiedChannelEvidence('qq', channelId, platformUserId, 'private');
+const accepted = await sessions.acceptMessage(characterId, inboundEvent, evidence);
+const history = await sessions.readHistory(characterId, evidence, { limit: 20 });
+```
+
+Run the isolated PostgreSQL test from `packages/companion` after setting a test database whose name ends with `_compat`:
+
+```bash
+CORE_TEST_DATABASE_URL=postgres://localhost/oh_bot_core_v2_compat \
+  pnpm exec tsx --test --test-concurrency=1 test/chat-session.integration.test.ts
+```
+
+The test covers two verified identities with isolated multi-turn histories, forged/cloned evidence, forged `ActorContext`, caller-supplied person/user claims, foreign-person message filtering, duplicate-event idempotency, and replay conflicts. It requires a real PostgreSQL database; no live model or QQ connection is used. M1b1 does not add a CLI, network service, or package script.
+

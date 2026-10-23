@@ -128,6 +128,16 @@ export class InboundService {
         )).for('update').limit(1);
         if (!conversation) throw new CompanionError('transaction_failed');
 
+        if (event.conversationKind === 'private') {
+          const members = await tx.select({ personId: conversationMembers.personId })
+            .from(conversationMembers)
+            .where(eq(conversationMembers.conversationId, conversation.id))
+            .for('update');
+          if (members.length && !members.some((member) => identity.linkedPersonIds.includes(member.personId))) {
+            throw new CompanionError('conversation_member_mismatch');
+          }
+        }
+
         const receivedAt = this.now();
         await tx.update(conversations).set({
           participantsComplete: false,

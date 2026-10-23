@@ -83,3 +83,10 @@ F4b记忆来源、更正与遗忘账本已完成并通过独立复审PASS：管�
 - 未配置真实业务聊天凭据，**未执行 live 模型验收**；fixture 通过不等同 live API 通过。
 - 未持久化历史、未接入身份/ACL/Mem0/LangGraph、无流式与重试；这些属于 M1b 及后续任务。
 - 不修改既有 `package.json` scripts；根 `pnpm codex:check` 不覆盖 companion 包，M1a 测试需按上述文件路径单独执行。
+
+## 主分支同步验证（2026-10-23）
+
+- 从历史重试分支整合 M1b1 `LocalChatSessionService`、可信私聊历史读取、私聊成员校验及 Worker 信号退出修复，保留主分支已有的 M1a 模型网关和终端聊天实现。
+- 在专用 PostgreSQL 测试数据库上执行 `.github/codex/check.sh`：构建、类型检查、基础测试、29 项集成测试、健康检查、启动检查，以及自动发现的 71 项 Companion 测试全部通过；根目录 `codex:check` 通过。
+- M1b1 新增 3 项 PostgreSQL 测试覆盖身份隔离、多轮历史、伪造证据拒绝、重复事件幂等和重放冲突。
+- 不导入旧分支的聊天记录、运行数据或凭据；不恢复已暂停的自动编码工作流。CLI/模型历史接线和真实 QQ/模型验收仍未完成。
