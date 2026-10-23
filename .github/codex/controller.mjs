@@ -160,7 +160,7 @@ export async function requestReviewWithFallback(apis,messages,params,request=cha
     const issue=error instanceof Error ? error.message : '';
     const distinct=apis.review.baseUrl!==apis.coding.baseUrl || apis.review.model!==apis.coding.model;
     if(!enabled || !distinct ||
-      !/^(Configured model API HTTP (404|429|5\\d\\d)|Configured model API did not return a non-empty chat completion|Configured model API returned invalid JSON)$/.test(issue)) throw error;
+      !/^(Configured model API HTTP (404|429|5\d\d)|Configured model API did not return a non-empty chat completion|Configured model API returned invalid JSON)$/.test(issue)) throw error;
     const content=await request(apis.coding,messages,params);
     return {content,mode:'coding-provider-second-pass'};
   }
