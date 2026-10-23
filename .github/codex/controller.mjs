@@ -7,7 +7,15 @@ import {resolveApiConfig,openCodeProvider,probeApi,chatCompletionWithRetry} from
 
 const control = dirname(fileURLToPath(import.meta.url));
 const tasksPath = 'docs/implementation/unattended-tasks.md';
-const retryFeedbackPath = 'docs/implementation/unattended-retry-feedback.md';
+const parallelLane = process.env.PARALLEL_LANE || '';
+const parallelTasks = Object.freeze({
+  persona: {id:'P1',text:'Implement the persona service using existing characterVersions, relationshipStates and interactionEvents; obey docs/implementation/gpt-parallel-spec-v1.md; edit only persona module and persona tests.'},
+  onebot: {id:'Q1',text:'Implement the disabled-by-default OneBot/NapCat protocol adapter, inbound validation, trusted transport boundary and receipt classification; obey docs/implementation/gpt-parallel-spec-v1.md; edit only OneBot module and OneBot tests.'},
+});
+if(parallelLane && !Object.hasOwn(parallelTasks,parallelLane)) throw new Error('Unsupported parallel lane');
+const retryFeedbackPath = parallelLane
+  ? 'docs/implementation/parallel-retry-'+parallelLane+'.md'
+  : 'docs/implementation/unattended-retry-feedback.md';
 const target = 'feat/companion-v3';
 function git(args, cwd=process.cwd(), env=process.env) {
   return execFileSync('git', ['-c','core.hooksPath=/dev/null',...args], {cwd,env,encoding:'utf8',maxBuffer:4*1024*1024,timeout:60000}).trim();
@@ -55,8 +63,22 @@ export function guard(state,cwd=process.cwd()) {
 
 export async function prepare() {
   const baseline=git(['rev-parse','HEAD']);
-  const task=selectTask(readFileSync(tasksPath,'utf8'));
-  const state={baseline,sourceHead:baseline,task,safe:false,changed:false,verified:false,reviewed:false,resumed:false,retryBranch:'automation/retry-'+baseline.slice(0,12)};
+  const task=parallelLane ? parallelTasks[parallelLane] : selectTask(readFileSync(tasksPath,'utf8'));
+  const state={baseline,sourceHead:baseline,task,parallel:Boolean(parallelLane),safe:false,changed:false,verified:false,reviewed:false,resumed:false,
+    retryBranch:parallelLane ? 'automation/parallel-'+parallelLane : 'automation/retry-'+baseline.slice(0,12),
+    readyBranch:parallelLane ? 'automation/ready-'+parallelLane : null};
+  if(state.parallel) {
+    let ready=false;
+    try {ready=Boolean(git(['ls-remote','--exit-code','origin','refs/heads/'+state.readyBranch]));}
+    catch(error) {if(error.status!==2) throw error;}
+    if(ready) {
+      state.task=null;
+      save(state);
+      output('active',false);
+      summary('并行任务 '+parallelLane+' 已有待集成分支 '+state.readyBranch+'；本轮不重复编码。');
+      return;
+    }
+  }
   save(state);
   output('active',Boolean(task));
   if(!task) {summary('## 全自动开发\n任务清单已完成；本轮不调用模型。真实 API 和生产上线仍按实际验收状态记录。');return;}
@@ -68,7 +90,8 @@ export async function prepare() {
   }
   if(retryExists) {
     git(['fetch','--no-tags','origin',ref]);
-    git(['merge-base','--is-ancestor',baseline,'FETCH_HEAD']);
+    if(state.parallel) state.baseline=git(['merge-base',baseline,'FETCH_HEAD']);
+    else git(['merge-base','--is-ancestor',baseline,'FETCH_HEAD']);
     git(['checkout','--detach','FETCH_HEAD']);
     state.sourceHead=git(['rev-parse','HEAD']);
     state.resumed=true;
@@ -144,12 +167,50 @@ async function review(state) {
   return verdict;
 }
 
+function markReviewed(state,verdict) {
+  if(existsSync(retryFeedbackPath)) rmSync(retryFeedbackPath);
+  if(!state.parallel) {
+    const backlog=readFileSync(tasksPath,'utf8');
+    if(!backlog.includes(state.task.line)) throw new Error('Selected task changed during execution');
+    writeFileSync(tasksPath,backlog.replace(state.task.line,state.task.line.replace('- [ ]','- [x]')));
+  }
+  git(['add','--all']);
+  state.verifiedTree=git(['write-tree']);
+  state.changed=true;
+  state.safe=true;
+  state.verified=true;
+  state.reviewed=true;
+  state.review=verdict;
+  save(state);
+  output('verified',true);
+  summary('固定验证和独立模型审查通过；等待发布到隔离分支或开发分支。');
+}
 export async function cycle() {
   const state=load();
   let feedback=state.retryFeedback
     ? '修复上一轮审查提出的全部问题。先核验每条意见对应的代码和真实测试行为；不能证明时调整实现、契约和文档，不能弱化测试或声称未验证行为。不要勾选任务。\n\n上一轮反馈：\n'+state.retryFeedback
     : 'Implement the selected task. Do not mark the task checkbox; the trusted controller does this only after tests and review.';
   const apis=resolveApiConfig();
+  // A previously coded parallel branch must be verified and reviewed before
+  // asking a model to rewrite it. Infrastructure review errors do not justify re-coding.
+  if(state.parallel && state.resumed && guard(state).some(path=>path!==retryFeedbackPath)) {
+    try {
+      verify(state);
+      const verdict=await review(state);
+      markReviewed(state,verdict);
+      return;
+    } catch(error) {
+      const issue=cleanError(error);
+      if(/Configured model API (HTTP|did not return|returned invalid JSON)/.test(issue)) {
+        state.error=issue;
+        state.changed=guard(state).length>0;
+        state.safe=true;
+        save(state);
+        throw new Error('Review infrastructure unavailable; keep verified source: '+issue);
+      }
+      feedback='上次保存的并行代码未通过测试或代码审查，请仅修复本任务。实际反馈：\\n'+issue;
+    }
+  }
   await probeApi(apis.coding);
   summary('编码模型真实API连通性检查通过。');
   const codingProvider=openCodeProvider(apis.coding);
@@ -170,8 +231,11 @@ export async function cycle() {
   // instead of repeating full verification and review three times in one job.
   for(let attempt=0;attempt<1;attempt++) {
     try {
-      summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/3');
-      const prompt=readFileSync(join(control,'prompt.md'),'utf8')+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\n\n'+feedback;
+      summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/1');
+      const laneBoundary=state.parallel
+        ? '\n\nPARALLEL LANE '+parallelLane+': GPT-authored spec is docs/implementation/gpt-parallel-spec-v1.md. You may ONLY edit your lane module and lane-named test files. Do not edit progress docs, retry docs, manifests, schema, identity, shared CLI, workflows, or other lane files. Do not invent live API or QQ test results. Implement actual behavior and meaningful tests.'
+        : '';
+      const prompt=readFileSync(join(control,'prompt.md'),'utf8')+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+laneBoundary+'\n\n'+feedback;
       // Instructions are in the initial message, so no outside-directory attachment permission is needed.
       const result=execFileSync('timeout',['--kill-after=10s','420s','opencode','run','--print-logs','--log-level','ERROR','--model',codingProvider.selectedModel,'--agent','build',prompt],{
         env:{...safeEnv(),DEEPSEEK_API_KEY:apis.coding.legacy?apis.coding.apiKey:'',CODING_API_KEY:apis.coding.apiKey,OPENCODE_CONFIG:configPath},
@@ -181,23 +245,8 @@ export async function cycle() {
       guard(state);
       if(git(['diff',state.baseline,'--']).length===0 && git(['ls-files','--others','--exclude-standard']).length===0) throw new Error('Task remains unfinished: no implementation changes');
       verify(state);
-      state.verified=true;
       const verdict=await review(state);
-      state.reviewed=true;
-      // Remove prior-run diagnostics after the reviewed fix no longer needs them.
-      if(existsSync(retryFeedbackPath)) rmSync(retryFeedbackPath);
-      // Checkbox mutation is trusted, not part of the agent's proposal.
-      const backlog=readFileSync(tasksPath,'utf8');
-      if(!backlog.includes(state.task.line)) throw new Error('Selected task changed during execution');
-      writeFileSync(tasksPath,backlog.replace(state.task.line,state.task.line.replace('- [ ]','- [x]')));
-      git(['add','--all']);
-      state.verifiedTree=git(['write-tree']);
-      state.changed=true;
-      state.safe=true;
-      state.review=verdict;
-      save(state);
-      output('verified',true);
-      summary('固定验证和独立模型审查通过；等待快进写入开发分支。');
+      markReviewed(state,verdict);
       return;
     } catch(error) {
       state.verified=false;state.reviewed=false;
@@ -221,7 +270,7 @@ export async function publish() {
   if(!state.task) return;
   if(!process.env.GH_TOKEN) throw new Error('Missing scoped GitHub token');
   const current=git(['ls-remote','origin','refs/heads/'+target]).split(/\s/)[0];
-  const destination=publicationTarget({...state,current});
+  const destination=publicationTarget({...state,current:state.parallel ? state.baseline : current});
   if(destination==='none') {
     summary('本轮未交付：'+(state.error||'没有可保存的合法改动'));
     throw new Error('No publishable result');
@@ -231,7 +280,7 @@ export async function publish() {
     if(git(['write-tree'])!==state.verifiedTree) throw new Error('Candidate changed after verification');
   } else {
     // A stale successful proposal is still unfinished work, so restore its trusted checkbox.
-    writeFileSync(tasksPath,retryBacklog(readFileSync(tasksPath,'utf8'),state.task));
+    if(!state.parallel) writeFileSync(tasksPath,retryBacklog(readFileSync(tasksPath,'utf8'),state.task));
     guard(state);
     git(['add','--all']);
   }
@@ -244,7 +293,7 @@ export async function publish() {
   let staged=true;
   try {git(['diff','--cached','--quiet']);staged=false;} catch(error) {if(error.status!==1) throw error;}
   if(staged) git(['-c','user.name=oh-bot automation','-c','user.email=4927411+sekaiai@users.noreply.github.com','commit','-m',destination==='target'?'自动完成陪伴系统任务 '+state.task.id:'保存陪伴系统待修复任务 '+state.task.id]);
-  const branch=destination==='target'?target:state.retryBranch;
+  const branch=destination==='target'?(state.parallel ? state.readyBranch : target):state.retryBranch;
   const auth='AUTHORIZATION: basic '+Buffer.from('x-access-token:'+process.env.GH_TOKEN).toString('base64');
   const pushEnv={...safeEnv(),GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'http.https://github.com/.extraheader',GIT_CONFIG_VALUE_0:auth};
   // No force push: a concurrent human change rejects this write instead of losing it.
@@ -252,6 +301,10 @@ export async function publish() {
   const sha=git(['rev-parse','HEAD']);
   summary(destination==='target'?'已自动交付 '+state.task.id+' 到 '+target+'：'+sha:'未通过交付门禁；改动保存在 '+branch+'：'+sha+'，下轮自动继续。');
   if(destination!=='target') throw new Error('Task remains unfinished; retry saved');
+  if(state.parallel) {
+    summary('并行 lane '+parallelLane+' 已交付独立分支；等待集成作业验证合并。');
+    return;
+  }
   if(selectTask(readFileSync(tasksPath,'utf8'))) {
     const response=await fetch('https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY+'/actions/workflows/unattended-codex.yml/dispatches',{
       method:'POST',headers:{Accept:'application/vnd.github+json',Authorization:'Bearer '+process.env.GH_TOKEN,'X-GitHub-Api-Version':'2022-11-28'},

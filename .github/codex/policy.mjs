@@ -46,6 +46,13 @@ const progressOrFeedback = path =>
   path === 'docs/implementation/unattended-retry-feedback.md';
 const companionMvp = path => path.startsWith('packages/companion/') || progressOrFeedback(path);
 const taskScopes = {
+  // Parallel workers write only their isolated feature modules and tests.
+  P1: path => path.startsWith('packages/companion/src/persona/')
+    || /^packages\/companion\/test\/persona-[^/]+\.test\.ts$/.test(path)
+    || path === 'docs/implementation/parallel-retry-persona.md',
+  Q1: path => path.startsWith('packages/companion/src/channels/onebot/')
+    || /^packages\/companion\/test\/onebot-[^/]+\.test\.ts$/.test(path)
+    || path === 'docs/implementation/parallel-retry-onebot.md',
   // MVP slices cannot silently rewrite the legacy app or trusted automation.
   M1a: companionMvp,
   M1b: companionMvp,

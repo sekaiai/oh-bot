@@ -1,0 +1,190 @@
+name: Parallel Companion Coding
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15,45 * * * *'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/codex/**'
+      - '.github/workflows/parallel-mvp.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/codex/controller.mjs'
+      - '.github/codex/policy.mjs'
+      - '.github/codex/parallel-integrator.mjs'
+      - '.github/workflows/parallel-mvp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  controller-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Validate parallel orchestration and security policy
+        run: |
+          node --check .github/codex/controller.mjs
+          node --check .github/codex/parallel-integrator.mjs
+          node --test .github/codex/policy.test.mjs .github/codex/controller.test.mjs .github/codex/parallel-integrator.test.mjs
+  parallel-workers:
+    needs: controller-tests
+    if: github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        lane: [persona, onebot]
+    concurrency:
+      group: oh-bot-parallel-${{ matrix.lane }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+        env:
+          POSTGRES_USER: compat
+          POSTGRES_PASSWORD: compat-test-only
+          POSTGRES_DB: oh_bot_core_v2_compat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U compat -d oh_bot_core_v2_compat"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CI: 'true'
+      CORE_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_core_v2_compat
+      WORKER_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_worker_compat
+      PARALLEL_LANE: ${{ matrix.lane }}
+    defaults:
+      run:
+        working-directory: project
+    steps:
+      - name: Checkout trusted controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout development branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: feat/companion-v3
+          path: project
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: '11.25.0'
+          run_install: false
+      - name: Select isolated lane and resume checkpoint
+        id: prepare
+        run: node ../control/.github/codex/controller.mjs prepare
+      - name: Check configured model providers
+        if: steps.prepare.outputs.active == 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CODING_API_KEY: ${{ secrets.CODING_API_KEY }}
+          CODING_API_BASE_URL: ${{ vars.CODING_API_BASE_URL || secrets.CODING_API_BASE_URL }}
+          CODING_API_MODEL: ${{ vars.CODING_API_MODEL || secrets.CODING_API_MODEL }}
+          REVIEW_API_BASE_URL: ${{ vars.REVIEW_API_BASE_URL || secrets.REVIEW_API_BASE_URL }}
+          REVIEW_API_MODEL: ${{ vars.REVIEW_API_MODEL || secrets.REVIEW_API_MODEL }}
+          REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
+        run: node ../control/.github/codex/api-config.mjs check
+      - name: Prepare isolated verifier and databases
+        if: steps.prepare.outputs.active == 'true'
+        env:
+          PGPASSWORD: compat-test-only
+        run: |
+          npm install --global opencode-ai@1.19.3
+          docker build --tag oh-bot-verifier --file ../control/.github/codex/verify.Dockerfile ../control/.github/codex
+          psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
+      - name: Implement and review isolated lane
+        id: cycle
+        if: steps.prepare.outputs.active == 'true'
+        timeout-minutes: 26
+        continue-on-error: true
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek/deepseek-chat' }}
+          CODING_API_BASE_URL: ${{ vars.CODING_API_BASE_URL || secrets.CODING_API_BASE_URL }}
+          CODING_API_MODEL: ${{ vars.CODING_API_MODEL || secrets.CODING_API_MODEL }}
+          CODING_API_KEY: ${{ secrets.CODING_API_KEY }}
+          REVIEW_API_BASE_URL: ${{ vars.REVIEW_API_BASE_URL || secrets.REVIEW_API_BASE_URL }}
+          REVIEW_API_MODEL: ${{ vars.REVIEW_API_MODEL || secrets.REVIEW_API_MODEL }}
+          REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
+        run: node ../control/.github/codex/controller.mjs cycle
+      - name: Publish reviewed branch or preserve repair checkpoint
+        if: always() && steps.cycle.outcome != 'skipped' && steps.cycle.outcome != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node ../control/.github/codex/controller.mjs publish
+  integrate:
+    needs: [controller-tests, parallel-workers]
+    if: always() && needs.controller-tests.result == 'success' && github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: oh-bot-parallel-integrate
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+        env:
+          POSTGRES_USER: compat
+          POSTGRES_PASSWORD: compat-test-only
+          POSTGRES_DB: oh_bot_core_v2_compat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U compat -d oh_bot_core_v2_compat"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CI: 'true'
+      CORE_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_core_v2_compat
+      WORKER_TEST_DATABASE_URL: postgresql://compat:compat-test-only@127.0.0.1:5432/oh_bot_worker_compat
+    defaults:
+      run:
+        working-directory: project
+    steps:
+      - name: Checkout trusted controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout development branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: feat/companion-v3
+          path: project
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Prepare isolated verifier
+        env:
+          PGPASSWORD: compat-test-only
+        run: |
+          docker build --tag oh-bot-verifier --file ../control/.github/codex/verify.Dockerfile ../control/.github/codex
+          psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
+      - name: Serially merge reviewed slices with complete regression checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node ../control/.github/codex/parallel-integrator.mjs
