@@ -45,7 +45,7 @@ index 84b7b170435ecafa4a73972946072b45cd0abb10..d328739a56eebd96978dc135c832ab1c
      close(): void;
      saveMessages?(messages: Array<{
 diff --git a/dist/oss/index.js b/dist/oss/index.js
-index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..af68edc273ed4d172b5dd62527388a5b139c0e5c 100644
+index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..c9ec915092c0c39ec4df17a55921580405bfdd26 100644
 --- a/dist/oss/index.js
 +++ b/dist/oss/index.js
 @@ -4993,6 +4993,10 @@ var SQLiteManager = class {
@@ -59,7 +59,7 @@ index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..af68edc273ed4d172b5dd62527388a5b
    async saveMessages(messages, sessionScope) {
      if (!messages.length) return;
      const insertMsg = this.db.prepare(
-@@ -18325,6 +18329,22 @@ var Memory = class _Memory {
+@@ -18325,6 +18329,27 @@ var Memory = class _Memory {
      await this._displayFirstRunNotice("history");
      return result;
    }
@@ -69,11 +69,16 @@ index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..af68edc273ed4d172b5dd62527388a5b
 +    return this.db.deleteHistory(memoryId);
 +  }
 +  async close() {
++    await this._initPromise;
 +    const outcomes = await Promise.allSettled([
 +      Promise.resolve().then(() => this.db.close()),
 +      Promise.resolve().then(async () => {
 +        const close = this.vectorStore && this.vectorStore.close;
 +        if (typeof close === "function") await close.call(this.vectorStore);
++      }),
++      Promise.resolve().then(async () => {
++        const close = this._entityStore && this._entityStore.close;
++        if (typeof close === "function") await close.call(this._entityStore);
 +      })
 +    ]);
 +    const errors = outcomes.filter((outcome) => outcome.status === "rejected").map((outcome) => outcome.reason);
@@ -83,7 +88,7 @@ index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..af68edc273ed4d172b5dd62527388a5b
      await this._ensureInitialized();
      await this._captureEvent("reset");
 diff --git a/dist/oss/index.mjs b/dist/oss/index.mjs
-index a226d3a001d79403261643fb3135dfbc6ad9ee96..06d60313d929f7d3c12788b51d8db8f2df76bf55 100644
+index a226d3a001d79403261643fb3135dfbc6ad9ee96..1ad0fb2c952de6f7dc271231d4146e68fd0404a6 100644
 --- a/dist/oss/index.mjs
 +++ b/dist/oss/index.mjs
 @@ -4899,6 +4899,10 @@ var SQLiteManager = class {
@@ -97,7 +102,7 @@ index a226d3a001d79403261643fb3135dfbc6ad9ee96..06d60313d929f7d3c12788b51d8db8f2
    async saveMessages(messages, sessionScope) {
      if (!messages.length) return;
      const insertMsg = this.db.prepare(
-@@ -18231,6 +18235,22 @@ var Memory = class _Memory {
+@@ -18231,6 +18235,27 @@ var Memory = class _Memory {
      await this._displayFirstRunNotice("history");
      return result;
    }
@@ -107,11 +112,16 @@ index a226d3a001d79403261643fb3135dfbc6ad9ee96..06d60313d929f7d3c12788b51d8db8f2
 +    return this.db.deleteHistory(memoryId);
 +  }
 +  async close() {
++    await this._initPromise;
 +    const outcomes = await Promise.allSettled([
 +      Promise.resolve().then(() => this.db.close()),
 +      Promise.resolve().then(async () => {
 +        const close = this.vectorStore && this.vectorStore.close;
 +        if (typeof close === "function") await close.call(this.vectorStore);
++      }),
++      Promise.resolve().then(async () => {
++        const close = this._entityStore && this._entityStore.close;
++        if (typeof close === "function") await close.call(this._entityStore);
 +      })
 +    ]);
 +    const errors = outcomes.filter((outcome) => outcome.status === "rejected").map((outcome) => outcome.reason);

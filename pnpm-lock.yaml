@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  mem0ai@3.3.1: 531cdb419c2a2415a43433d94e94711ce884feccd1aadf3c5449db1c43d6b0bb
+  mem0ai@3.3.1: dddc43664e38b7078c5ebd10c6a7097557191786ad5c72ad1d7a87c4449c04aa
 
 importers:
 
@@ -89,13 +89,13 @@ importers:
         version: 12.11.1
       drizzle-orm:
         specifier: 0.45.4
-        version: 0.45.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(pg@8.23.1)
+        version: 0.45.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.10.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(pg@8.23.1)
       fastify:
         specifier: 5.12.7
         version: 5.12.7
       mem0ai:
         specifier: 3.3.1
-        version: 3.3.1(patch_hash=531cdb419c2a2415a43433d94e94711ce884feccd1aadf3c5449db1c43d6b0bb)(@cloudflare/workers-types@4.20260702.1)(@langchain/core@1.2.20(@opentelemetry/api@1.10.0)(openai@7.39.0(ws@8.22.0)(zod@3.25.76))(ws@8.22.0))(@types/pg@8.23.1)(better-sqlite3@12.11.1)(compromise@14.19.0)(debug@4.4.3)(pg@8.23.1)(ws@8.22.0)
+        version: 3.3.1(patch_hash=dddc43664e38b7078c5ebd10c6a7097557191786ad5c72ad1d7a87c4449c04aa)(@cloudflare/workers-types@4.20260702.1)(@langchain/core@1.2.20(@opentelemetry/api@1.10.0)(openai@7.39.0(ws@8.22.0)(zod@3.25.76))(ws@8.22.0))(@types/pg@8.23.1)(better-sqlite3@12.11.1)(compromise@14.19.0)(debug@4.4.3)(pg@8.23.1)(ws@8.22.0)
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -115,6 +115,9 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
     devDependencies:
+      '@types/better-sqlite3':
+        specifier: 7.6.13
+        version: 7.6.13
       '@types/node':
         specifier: 24.10.0
         version: 24.10.0
@@ -193,7 +196,7 @@ importers:
         version: 12.11.1
       mem0ai:
         specifier: 3.3.1
-        version: 3.3.1(patch_hash=531cdb419c2a2415a43433d94e94711ce884feccd1aadf3c5449db1c43d6b0bb)(@cloudflare/workers-types@4.20260702.1)(@langchain/core@1.2.20(@opentelemetry/api@1.10.0)(openai@7.39.0(ws@8.22.0)(zod@3.25.76))(ws@8.22.0))(@types/pg@8.23.1)(better-sqlite3@12.11.1)(compromise@14.19.0)(debug@4.4.3)(pg@8.23.1)(ws@8.22.0)
+        version: 3.3.1(patch_hash=dddc43664e38b7078c5ebd10c6a7097557191786ad5c72ad1d7a87c4449c04aa)(@cloudflare/workers-types@4.20260702.1)(@langchain/core@1.2.20(@opentelemetry/api@1.10.0)(openai@7.39.0(ws@8.22.0)(zod@3.25.76))(ws@8.22.0))(@types/pg@8.23.1)(better-sqlite3@12.11.1)(compromise@14.19.0)(debug@4.4.3)(pg@8.23.1)(ws@8.22.0)
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -1059,6 +1062,9 @@ packages:
 
   '@tokenizer/token@0.3.0':
     resolution: {integrity: sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A==}
+
+  '@types/better-sqlite3@7.6.13':
+    resolution: {integrity: sha512-NMv9ASNARoKksWtsq/SHakpYAYnhBrQgGD8zkLYk/jaK8jUGn08CfEdTRgYhMypUQAfzSP8W6gNLe0q19/t4VA==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -3607,6 +3613,10 @@ snapshots:
 
   '@tokenizer/token@0.3.0': {}
 
+  '@types/better-sqlite3@7.6.13':
+    dependencies:
+      '@types/node': 24.10.0
+
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
@@ -4086,10 +4096,11 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(pg@8.23.1):
+  drizzle-orm@0.45.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.10.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(pg@8.23.1):
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260702.1
       '@opentelemetry/api': 1.10.0
+      '@types/better-sqlite3': 7.6.13
       '@types/pg': 8.23.1
       better-sqlite3: 12.11.1
       pg: 8.23.1
@@ -4612,7 +4623,7 @@ snapshots:
 
   math-intrinsics@1.1.0: {}
 
-  mem0ai@3.3.1(patch_hash=531cdb419c2a2415a43433d94e94711ce884feccd1aadf3c5449db1c43d6b0bb)(@cloudflare/workers-types@4.20260702.1)(@langchain/core@1.2.20(@opentelemetry/api@1.10.0)(openai@7.39.0(ws@8.22.0)(zod@3.25.76))(ws@8.22.0))(@types/pg@8.23.1)(better-sqlite3@12.11.1)(compromise@14.19.0)(debug@4.4.3)(pg@8.23.1)(ws@8.22.0):
+  mem0ai@3.3.1(patch_hash=dddc43664e38b7078c5ebd10c6a7097557191786ad5c72ad1d7a87c4449c04aa)(@cloudflare/workers-types@4.20260702.1)(@langchain/core@1.2.20(@opentelemetry/api@1.10.0)(openai@7.39.0(ws@8.22.0)(zod@3.25.76))(ws@8.22.0))(@types/pg@8.23.1)(better-sqlite3@12.11.1)(compromise@14.19.0)(debug@4.4.3)(pg@8.23.1)(ws@8.22.0):
     dependencies:
       '@cloudflare/workers-types': 4.20260702.1
       axios: 1.20.0(debug@4.4.3)
