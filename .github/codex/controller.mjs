@@ -253,10 +253,19 @@ export async function cycle() {
   for(let attempt=0;attempt<1;attempt++) {
     try {
       summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/1');
-      const laneBoundary=state.parallel
-        ? '\n\nPARALLEL LANE '+parallelLane+': GPT-authored spec is docs/implementation/gpt-parallel-spec-v1.md. You may ONLY edit your lane module and lane-named test files. Do not edit progress docs, retry docs, manifests, schema, identity, shared CLI, workflows, or other lane files. Do not invent live API or QQ test results. Implement actual behavior and meaningful tests.'
+      const parallelHeader=state.parallel
+        ? ('You are a coding agent with ONLY read, glob, grep, edit, write tools. Bash and shell DO NOT EXIST. NEVER call bash. '+
+          'Write actual source files and tests with the write/edit tool BEFORE ending. A read-only answer is a failed task. '+
+          'Read docs/implementation/gpt-parallel-spec-v1.md and only the minimum directly relevant source files; '+
+          'do not explore unrelated plans or run tests. The trusted controller runs tests. '+
+          'Do not edit AGENTS.md, progress docs, task list, manifests, schema, identity, shared CLI, or other lane files. '+
+          (parallelLane==='persona'
+            ? 'Read packages/companion/src/database/schema/identity.ts, packages/companion/src/database/schema/operations.ts, packages/companion/src/identity/trust.ts and packages/companion/test/helpers.ts. Then WRITE packages/companion/src/persona/ service files and persona-*.test.ts tests. '
+            : 'Read packages/companion/src/domain/contracts.ts, packages/companion/src/identity/trust.ts and existing src/adapters/napcat/parser.ts. Then WRITE packages/companion/src/channels/onebot/ adapter files and onebot-*.test.ts tests. ')+
+          '\\n\\n')
         : '';
-      const prompt=readFileSync(join(control,'prompt.md'),'utf8')+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+laneBoundary+'\n\n'+feedback;
+      const baseInstructions=state.parallel ? '' : readFileSync(join(control,'prompt.md'),'utf8');
+      const prompt=parallelHeader+baseInstructions+'\\n\\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\\n\\n'+feedback;
       // Instructions are in the initial message, so no outside-directory attachment permission is needed.
       const result=execFileSync('timeout',['--kill-after=10s','420s','opencode','run','--print-logs','--log-level','ERROR','--model',codingProvider.selectedModel,'--agent','build',prompt],{
         env:{...safeEnv(),DEEPSEEK_API_KEY:apis.coding.legacy?apis.coding.apiKey:'',CODING_API_KEY:apis.coding.apiKey,OPENCODE_CONFIG:configPath},
