@@ -4,6 +4,11 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '15,45 * * * *'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/codex/**'
+      - '.github/workflows/parallel-mvp.yml'
   push:
     branches: [main]
     paths:
