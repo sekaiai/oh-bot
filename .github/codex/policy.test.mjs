@@ -30,3 +30,21 @@ test("F4b changes stay inside compatibility package and progress", () => assert.
   && !p.taskPathAllowed({id:"F4b"}, "packages/companion/src/worker.ts")
   && !p.taskPathAllowed({id:"F4b"}, "packages/companion/admin/src/App.vue")
 )(p), true));
+
+test('MVP task is prioritized ahead of deferred legacy tasks', () => {
+  const backlog = '- [x] F4a：done\n- [ ] M1a：first usable chat\n- [ ] F4b：deferred SDK adapter';
+  assert.equal(p.selectTask(backlog)?.id,'M1a');
+});
+test('M1a cannot edit unrelated app, automation or compatibility package', () => {
+  const task={id:'M1a'};
+  assert.equal(p.taskPathAllowed(task,'packages/companion/src/chat/model-gateway.ts'),true);
+  assert.equal(p.taskPathAllowed(task,'packages/companion/test/chat.test.ts'),true);
+  assert.equal(p.taskPathAllowed(task,'docs/implementation/progress.md'),true);
+  assert.equal(p.taskPathAllowed(task,'src/index.ts'),false);
+  assert.equal(p.taskPathAllowed(task,'packages/compatibility/src/config.ts'),false);
+  assert.equal(p.taskPathAllowed(task,'.github/workflows/unattended-codex.yml'),false);
+});
+test('M2b may integrate compatibility memory but M3a may not', () => {
+  assert.equal(p.taskPathAllowed({id:'M2b'},'packages/compatibility/src/memory-worker.ts'),true);
+  assert.equal(p.taskPathAllowed({id:'M3a'},'packages/compatibility/src/memory-worker.ts'),false);
+});
