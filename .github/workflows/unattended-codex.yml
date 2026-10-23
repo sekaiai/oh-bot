@@ -1,14 +1,10 @@
 name: Unattended Companion MVP
 
+
+# PAUSED by request: no scheduled, push, PR or manual coding jobs.
+# Restore triggers and job conditions only on explicit instruction.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/30 * * * *'
-  push:
-    branches: [main, chore/full-unattended-20261022]
-    paths:
-      - '.github/codex/**'
-      - '.github/workflows/unattended-codex.yml'
 
 permissions:
   contents: read
@@ -19,6 +15,7 @@ concurrency:
 
 jobs:
   controller-tests:
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -40,7 +37,7 @@ jobs:
 
   implement:
     needs: controller-tests
-    if: github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 38
     permissions:
@@ -131,7 +128,7 @@ jobs:
 
   baseline-verification:
     needs: controller-tests
-    if: github.ref != 'refs/heads/main'
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
