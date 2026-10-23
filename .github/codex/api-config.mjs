@@ -103,6 +103,29 @@ export async function chatCompletion(api,messages,params={},transport=fetch) {
   return content;
 }
 
+// The coding provider can intermittently return an empty completion or transient
+// transport error. Retry only those failures; permanent configuration/auth errors
+// remain immediate. This bounded probe runs before OpenCode starts.
+export async function probeApi(api,{transport=fetch,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
+  for (let attempt=0; attempt<3; attempt++) {
+    try {
+      return await chatCompletion(api,[{role:'user',content:'Reply OK.'}],{max_tokens:16},transport);
+    } catch (error) {
+      const message=error instanceof Error ? error.message : '';
+      const transient =
+        message === 'Configured model API did not return a non-empty chat completion' ||
+        message === 'Configured model API returned invalid JSON' ||
+        /Configured model API HTTP (429|5\\d\\d)$/.test(message) ||
+        error?.name === 'TimeoutError' ||
+        error?.name === 'AbortError' ||
+        error instanceof TypeError;
+      if (!transient || attempt === 2) throw error;
+      await sleep(250 * (attempt + 1));
+    }
+  }
+  throw new Error('Configured model API probe failed');
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === 'check') {
   const cfg=resolveApiConfig();
   console.log('Coding/review API settings valid; coding mode: '+(cfg.coding.legacy?'legacy DeepSeek':'custom OpenAI-compatible')+'.');

@@ -3,7 +3,7 @@ import {readFileSync, writeFileSync, appendFileSync, existsSync, lstatSync, mkdt
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {allowedPath, taskPathAllowed, assertManifest, reviewApproved, selectTask, publicationTarget, errorFeedback, retryBacklog} from './policy.mjs';
-import {resolveApiConfig,openCodeProvider,chatCompletion} from './api-config.mjs';
+import {resolveApiConfig,openCodeProvider,chatCompletion,probeApi} from './api-config.mjs';
 
 const control = dirname(fileURLToPath(import.meta.url));
 const tasksPath = 'docs/implementation/unattended-tasks.md';
@@ -150,7 +150,7 @@ export async function cycle() {
     ? '修复上一轮审查提出的全部问题。先核验每条意见对应的代码和真实测试行为；不能证明时调整实现、契约和文档，不能弱化测试或声称未验证行为。不要勾选任务。\n\n上一轮反馈：\n'+state.retryFeedback
     : 'Implement the selected task. Do not mark the task checkbox; the trusted controller does this only after tests and review.';
   const apis=resolveApiConfig();
-  await chatCompletion(apis.coding,[{role:'user',content:'Reply OK.'}],{max_tokens:16});
+  await probeApi(apis.coding);
   summary('编码模型真实API连通性检查通过。');
   const codingProvider=openCodeProvider(apis.coding);
   const config={
