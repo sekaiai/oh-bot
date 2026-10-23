@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../database/database.js';
-import { auditEvents, conversationMembers, conversations, deletionRecords, memoryMappings, memoryRevisions, memorySources, memoryValidationRecords, messages } from '../database/schema/index.js';
-import type { ActorContext } from '../domain/contracts.js';
+import { auditEvents, commitments, conversationMembers, conversations, deliveryOutbox, deletionRecords, jobLogs, knowledgeClaims, memoryMappings, memoryRevisions, memorySources, memoryValidationRecords, messages, personEntities, relationshipEdges, turns } from '../database/schema/index.js';
+import type { ActorContext, VisibilityScope } from '../domain/contracts.js';
 import { isAuthenticatedAdminPrincipal } from '../admin/auth.js';
 import { DisclosurePolicy } from '../identity/disclosure-policy.js';
 import { isTrustedActorContext } from '../identity/trust.js';
@@ -47,12 +47,22 @@ function normalizeEvidenceClaim(text: string): string {
     .replace(/^[\s“”"'「」『』]*(?:我其实|其实|我|本人)?[\s，,:：]*/u, '')
     .replace(/[\p{P}\p{S}\s]/gu, '').toLocaleLowerCase();
 }
+
+function reintroducesSupersededFact(candidate: string, superseded: string): boolean {
+  const stale = normalizeEvidenceClaim(superseded);
+  const proposed = normalizeEvidenceClaim(candidate);
+  // Mem0 can combine a corrected clause with an unrelated surviving clause.
+  // The engine output then differs from the superseded revision as a whole,
+  // while still explicitly repeating it. Treat that as a conflict.
+  return stale.length >= 3 && proposed.includes(stale);
+}
 const candidateSchema = z.object({
   sourceId: uuidSchema,
   canonicalKey: z.string().trim().min(1).max(200),
   factText: z.string().trim().min(1).max(4_000),
   engineMemoryId: z.string().trim().min(1).max(512),
 }).strict();
+type BeforeDeletionCommit = (entry: { operationKey: string; characterId: string; sourceIds: string[]; memoryIds: string[]; scope: VisibilityScope }) => Promise<void>;
 
 export class MemoryLifecycleError extends Error {
   constructor(readonly code: 'untrusted_actor' | 'invalid_input' | 'source_not_owned' | 'source_unavailable' | 'stale_revision' | 'invalid_state') {
@@ -107,11 +117,17 @@ export class MemoryLifecycleService {
         claimKind: typeof message.text === 'string' ? classifyUserClaim(message.text) : 'direct',
         allowedForExtraction: typeof message.text === 'string' && message.text.trim().length > 0 && classifyUserClaim(message.text) === 'direct',
       }).onConflictDoNothing({ target: memorySources.batchKey }).returning();
-      if (inserted) return inserted;
+      if (inserted) {
+        await tx.insert(jobLogs).values({ operationKey: `mem0-sync:${inserted.id}`, queueName: 'memory_sync', status: 'pending' })
+          .onConflictDoNothing({ target: jobLogs.operationKey });
+        return inserted;
+      }
       const [existing] = await tx.select().from(memorySources).where(eq(memorySources.batchKey, batchKey)).limit(1);
       if (!existing || existing.messageId !== message.id || existing.characterId !== conversation.characterId) {
         throw new MemoryLifecycleError('invalid_state');
       }
+      await tx.insert(jobLogs).values({ operationKey: `mem0-sync:${existing.id}`, queueName: 'memory_sync', status: 'pending' })
+        .onConflictDoNothing({ target: jobLogs.operationKey });
       return existing;
     }, { isolationLevel: 'repeatable read' });
   }
@@ -137,6 +153,12 @@ export class MemoryLifecycleService {
           .limit(1);
         if (!existingRevision) throw new MemoryLifecycleError('invalid_state');
         return existingRevision;
+      }
+
+      const superseded = await tx.select({ factText: memoryRevisions.factText }).from(memoryRevisions)
+        .where(and(eq(memoryRevisions.sourceId, source.id), eq(memoryRevisions.status, 'superseded')));
+      if (superseded.some((row) => row.factText && reintroducesSupersededFact(candidate.factText, row.factText))) {
+        throw new MemoryLifecycleError('source_unavailable');
       }
 
       const parsedScope = visibilityScopeSchema.safeParse(source.scope);
@@ -191,6 +213,11 @@ export class MemoryLifecycleService {
           typeof evidence.text !== 'string' || classifyUserClaim(evidence.text) !== 'direct' || classifyUserClaim(review.evidenceQuote) !== 'direct' || !evidence.text.includes(review.evidenceQuote) ||
           !normalizeEvidenceClaim(revision.factText) || normalizeEvidenceClaim(revision.factText) !== normalizeEvidenceClaim(review.evidenceQuote)) {
         throw new MemoryLifecycleError(revision?.version !== expectedVersion ? 'stale_revision' : 'source_unavailable');
+      }
+      const supersededFacts = await tx.select({ factText: memoryRevisions.factText }).from(memoryRevisions)
+        .where(and(eq(memoryRevisions.sourceId, source.id), eq(memoryRevisions.status, 'superseded')));
+      if (supersededFacts.some((item) => item.factText && reintroducesSupersededFact(revision.factText!, item.factText))) {
+        throw new MemoryLifecycleError('source_unavailable');
       }
       const keyLock = `${revision.characterId}:${revision.canonicalKey}`;
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${keyLock}, 0))`);
@@ -284,11 +311,58 @@ export class MemoryLifecycleService {
       }).returning();
       if (!created) throw new MemoryLifecycleError('invalid_state');
       await tx.insert(memoryValidationRecords).values({ sourceId: source.id, status: 'validated', subjectPersonIds: [message.personId!], evidenceMessageIds: [message.id] });
+      await tx.insert(jobLogs).values({ operationKey: `mem0-sync:${source.id}`, queueName: 'memory_sync', status: 'pending' })
+        .onConflictDoNothing({ target: jobLogs.operationKey });
       return created;
     }, { isolationLevel: 'repeatable read' });
   }
 
-  async forgetSource(context: ActorContext, sourceId: string): Promise<typeof deletionRecords.$inferSelect> {
+  /** Explicit admin correction grounded in a persisted, same-owner message and exact evidence quote. */
+  async correctRevisionAsAdmin(input: { revisionId: string; expectedVersion: number; messageId: string; factText: string; evidenceQuote: string }, principal: unknown, auditReason: string): Promise<typeof memoryRevisions.$inferSelect> {
+    if (!isAuthenticatedAdminPrincipal(principal)) throw new MemoryLifecycleError('untrusted_actor');
+    if (!uuidSchema.safeParse(input.revisionId).success || !uuidSchema.safeParse(input.messageId).success ||
+        !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1 || !input.factText.trim() ||
+        typeof input.evidenceQuote !== 'string' || !input.evidenceQuote.trim() ||
+        typeof auditReason !== 'string' || auditReason.trim().length < 3 || auditReason.length > 500 || /[\u0000-\u001f\u007f]/u.test(auditReason)) {
+      throw new MemoryLifecycleError('invalid_input');
+    }
+    return this.database.db.transaction(async (tx) => {
+      const [old] = await tx.select().from(memoryRevisions).where(eq(memoryRevisions.id, input.revisionId)).for('update').limit(1);
+      if (!old) throw new MemoryLifecycleError('invalid_state');
+      const [oldSource] = await tx.select().from(memorySources).where(eq(memorySources.id, old.sourceId)).for('update').limit(1);
+      if (!oldSource || old.version !== input.expectedVersion) throw new MemoryLifecycleError('stale_revision');
+      if (old.status !== 'validated' || old.validTo || oldSource.status !== 'active' || oldSource.deletedAt || !oldSource.personId) throw new MemoryLifecycleError('source_unavailable');
+      const [message] = await tx.select().from(messages).where(eq(messages.id, input.messageId)).for('share').limit(1);
+      if (!message || message.role !== 'user' || message.deletedAt || message.personId !== oldSource.personId || message.conversationId !== oldSource.conversationId || typeof message.text !== 'string' ||
+          classifyUserClaim(message.text) !== 'direct' || classifyUserClaim(input.evidenceQuote) !== 'direct' || !message.text.includes(input.evidenceQuote) ||
+          normalizeEvidenceClaim(input.factText) !== normalizeEvidenceClaim(input.evidenceQuote)) throw new MemoryLifecycleError('source_unavailable');
+      const [conversation] = await tx.select().from(conversations).where(eq(conversations.id, message.conversationId)).limit(1);
+      if (!conversation || conversation.characterId !== old.characterId) throw new MemoryLifecycleError('source_unavailable');
+      const scope = conversation.kind === 'private' ? { kind: 'person_private' as const, personId: message.personId! } : { kind: 'conversation_shared' as const, conversationId: conversation.id };
+      if (JSON.stringify(scope) !== JSON.stringify(oldSource.scope)) throw new MemoryLifecycleError('source_unavailable');
+      const batchKey = `user-message:${message.id}`;
+      let [source] = await tx.select().from(memorySources).where(eq(memorySources.batchKey, batchKey)).for('update').limit(1);
+      if (!source) {
+        const participants = conversation.kind === 'group' ? await tx.select({ personId: conversationMembers.personId }).from(conversationMembers).where(eq(conversationMembers.conversationId, conversation.id)).orderBy(conversationMembers.personId) : [{ personId: message.personId! }];
+        [source] = await tx.insert(memorySources).values({ characterId: conversation.characterId, personId: message.personId, conversationId: conversation.id, messageId: message.id, sourceKind: 'user', batchKey, scope, subjectPersonIds: [message.personId!], speakerPersonId: message.personId, participantPersonIds: participants.map((item) => item.personId), claimKind: classifyUserClaim(message.text), allowedForExtraction: true }).returning();
+      }
+      if (!source || source.status !== 'active' || source.personId !== oldSource.personId || JSON.stringify(source.scope) !== JSON.stringify(oldSource.scope)) throw new MemoryLifecycleError('source_unavailable');
+      const keyLock = `${old.characterId}:${old.canonicalKey}`;
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${keyLock}, 0))`);
+      const [maximum] = await tx.select({ value: sql<number>`coalesce(max(${memoryRevisions.revision}), 0)::int` }).from(memoryRevisions).where(and(eq(memoryRevisions.characterId, old.characterId), eq(memoryRevisions.canonicalKey, old.canonicalKey)));
+      const now = new Date();
+      const [superseded] = await tx.update(memoryRevisions).set({ status: 'superseded', validTo: now, version: sql`${memoryRevisions.version} + 1` }).where(and(eq(memoryRevisions.id, old.id), eq(memoryRevisions.version, input.expectedVersion), eq(memoryRevisions.status, 'validated'), isNull(memoryRevisions.validTo))).returning();
+      if (!superseded) throw new MemoryLifecycleError('stale_revision');
+      const [created] = await tx.insert(memoryRevisions).values({ characterId: old.characterId, canonicalKey: old.canonicalKey, revision: (maximum?.value ?? 0) + 1, sourceId: source.id, engineMemoryId: null, factText: input.factText.trim(), scope, subjectPersonIds: [message.personId!], status: 'validated', validFrom: now, supersedesId: old.id }).returning();
+      if (!created) throw new MemoryLifecycleError('invalid_state');
+      await tx.insert(memoryValidationRecords).values({ sourceId: source.id, status: 'validated', subjectPersonIds: [message.personId!], evidenceMessageIds: [message.id], evidenceQuote: input.evidenceQuote.trim() });
+      await tx.insert(jobLogs).values({ operationKey: `mem0-sync:${source.id}`, queueName: 'memory_sync', status: 'pending' }).onConflictDoNothing({ target: jobLogs.operationKey });
+      await tx.insert(auditEvents).values({ actorKind: 'admin', actorId: principal.auditActorId, action: 'memory_revision_corrected_by_admin', targetId: old.id, metadata: { replacementRevisionId: created.id, sourceId: source.id, auditReason: auditReason.trim() } });
+      return created;
+    }, { isolationLevel: 'repeatable read' });
+  }
+
+  async forgetSource(context: ActorContext, sourceId: string, beforeCommit?: BeforeDeletionCommit): Promise<typeof deletionRecords.$inferSelect> {
     if (!isTrustedActorContext(context)) throw new MemoryLifecycleError('untrusted_actor');
     if (!uuidSchema.safeParse(sourceId).success) throw new MemoryLifecycleError('invalid_input');
     return this.database.db.transaction(async (tx) => {
@@ -316,22 +390,122 @@ export class MemoryLifecycleService {
       if (rootIds.length === 0) rootIds.push(source.id);
       const operationKey = `forget-chain:${source.characterId}:${rootIds.join(',')}`;
       const [existing] = await tx.select().from(deletionRecords).where(eq(deletionRecords.operationKey, operationKey)).for('update').limit(1);
-      if (existing) return existing;
+      if (existing) {
+        await beforeCommit?.({ operationKey: existing.operationKey, characterId: existing.characterId, sourceIds: existing.sourceIds, memoryIds: existing.memoryIds, scope: existing.scope });
+        return existing;
+      }
       const validations = await tx.select({ engineMemoryId: memoryValidationRecords.engineMemoryId }).from(memoryValidationRecords).where(inArray(memoryValidationRecords.sourceId, sourceIds));
       const revisionIds = revisions.map((x) => x.id);
       const mappings = revisionIds.length ? await tx.select({ engineMemoryId: memoryMappings.engineMemoryId }).from(memoryMappings).where(inArray(memoryMappings.revisionId, revisionIds)) : [];
       const memoryIds = [...new Set([...revisions.map((x) => x.engineMemoryId), ...validations.map((x) => x.engineMemoryId), ...mappings.map((x) => x.engineMemoryId)].filter((x): x is string => Boolean(x)))];
+      await beforeCommit?.({ operationKey, characterId: source.characterId, sourceIds, memoryIds, scope: source.scope });
       const now = new Date();
       await tx.update(memorySources).set({ status: 'deleted', deletedAt: now }).where(inArray(memorySources.id, sourceIds));
       await tx.update(memoryRevisions).set({ status: 'deleted', validTo: sql`coalesce(${memoryRevisions.validTo}, ${now})`, version: sql`${memoryRevisions.version} + 1` })
         .where(inArray(memoryRevisions.id, revisionIds));
+      await tx.update(memoryRevisions).set({ factText: '[forgotten]' }).where(inArray(memoryRevisions.id, revisionIds));
+      const erasedMessages = await tx.select({ messageId: memorySources.messageId }).from(memorySources).where(inArray(memorySources.id, sourceIds));
+      const erasedMessageIds = erasedMessages.map((item) => item.messageId);
+      await this.eraseSourceDerivedText(tx, sourceIds, erasedMessageIds, now);
       const [record] = await tx.insert(deletionRecords).values({
         characterId: source.characterId, personId: source.personId, scope: source.scope, sourceIds, memoryIds, operationKey, status: 'pending',
       }).returning();
       if (!record) throw new MemoryLifecycleError('invalid_state');
+      await tx.insert(jobLogs).values({ operationKey: `mem0-delete:${record.id}`, queueName: 'memory_delete', status: 'pending' })
+        .onConflictDoNothing({ target: jobLogs.operationKey });
       await tx.insert(auditEvents).values({ actorKind: 'person', actorId: source.personId, action: 'memory_source_forgotten', targetId: source.id,
         metadata: { deletionRecordId: record.id, memoryIds } });
       return record;
     }, { isolationLevel: 'repeatable read' });
+  }
+
+  /** Admin deletion is explicit, audited, CAS-protected, and keeps the original source scope. */
+  async forgetRevisionAsAdmin(revisionId: string, expectedVersion: number, principal: unknown, auditReason: string, beforeCommit?: BeforeDeletionCommit): Promise<typeof deletionRecords.$inferSelect> {
+    if (!isAuthenticatedAdminPrincipal(principal)) throw new MemoryLifecycleError('untrusted_actor');
+    if (!uuidSchema.safeParse(revisionId).success || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 ||
+        typeof auditReason !== 'string' || auditReason.trim().length < 3 || auditReason.length > 500 || /[\u0000-\u001f\u007f]/u.test(auditReason)) throw new MemoryLifecycleError('invalid_input');
+    const operationKey = `admin-forget-revision:${revisionId}:v${expectedVersion}`;
+    return this.database.db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(deletionRecords).where(eq(deletionRecords.operationKey, operationKey)).for('update').limit(1);
+      if (existing) {
+        await beforeCommit?.({ operationKey: existing.operationKey, characterId: existing.characterId, sourceIds: existing.sourceIds, memoryIds: existing.memoryIds, scope: existing.scope });
+        return existing;
+      }
+      const [key] = await tx.select({ sourceId: memoryRevisions.sourceId }).from(memoryRevisions).where(eq(memoryRevisions.id, revisionId)).limit(1);
+      if (!key) throw new MemoryLifecycleError('invalid_state');
+      const [source] = await tx.select().from(memorySources).where(eq(memorySources.id, key.sourceId)).for('update').limit(1);
+      const [requested] = await tx.select().from(memoryRevisions).where(eq(memoryRevisions.id, revisionId)).for('update').limit(1);
+      if (!source || !requested || requested.version !== expectedVersion) throw new MemoryLifecycleError(requested ? 'stale_revision' : 'invalid_state');
+      if (source.status !== 'active' || source.deletedAt) throw new MemoryLifecycleError('source_unavailable');
+      const candidates = await tx.select({ id: memoryRevisions.id, sourceId: memoryRevisions.sourceId, engineMemoryId: memoryRevisions.engineMemoryId, supersedesId: memoryRevisions.supersedesId }).from(memoryRevisions).where(eq(memoryRevisions.characterId, source.characterId));
+      const sourceIdsClosure = new Set([source.id]);
+      const chainRevisionIds = new Set<string>();
+      let expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (const row of candidates) {
+          const linked = sourceIdsClosure.has(row.sourceId) || chainRevisionIds.has(row.id) || Boolean(row.supersedesId && chainRevisionIds.has(row.supersedesId)) || candidates.some((child) => child.supersedesId === row.id && chainRevisionIds.has(child.id));
+          if (linked && !chainRevisionIds.has(row.id)) { chainRevisionIds.add(row.id); expanded = true; }
+          if (chainRevisionIds.has(row.id) && !sourceIdsClosure.has(row.sourceId)) { sourceIdsClosure.add(row.sourceId); expanded = true; }
+        }
+      }
+      const sourceIds = [...sourceIdsClosure].sort();
+      const revisionIds = [...chainRevisionIds].sort();
+      await tx.select({ id: memorySources.id }).from(memorySources).where(inArray(memorySources.id, sourceIds)).orderBy(memorySources.id).for('update');
+      const revisions = revisionIds.length ? await tx.select({ id: memoryRevisions.id, engineMemoryId: memoryRevisions.engineMemoryId }).from(memoryRevisions).where(inArray(memoryRevisions.id, revisionIds)).orderBy(memoryRevisions.id).for('update') : [];
+      const validations = await tx.select({ engineMemoryId: memoryValidationRecords.engineMemoryId }).from(memoryValidationRecords).where(inArray(memoryValidationRecords.sourceId, sourceIds));
+      const mappings = revisionIds.length ? await tx.select({ engineMemoryId: memoryMappings.engineMemoryId }).from(memoryMappings).where(inArray(memoryMappings.revisionId, revisionIds)) : [];
+      const memoryIds = [...new Set([...revisions.map((item) => item.engineMemoryId), ...validations.map((item) => item.engineMemoryId), ...mappings.map((item) => item.engineMemoryId)].filter((item): item is string => Boolean(item)))];
+      await beforeCommit?.({ operationKey, characterId: source.characterId, sourceIds, memoryIds, scope: source.scope });
+      const now = new Date();
+      await tx.update(memorySources).set({ status: 'deleted', deletedAt: now }).where(inArray(memorySources.id, sourceIds));
+      if (revisionIds.length) await tx.update(memoryRevisions).set({ status: 'deleted', validTo: sql`coalesce(${memoryRevisions.validTo}, ${now})`, version: sql`${memoryRevisions.version} + 1` }).where(inArray(memoryRevisions.id, revisionIds));
+      if (revisionIds.length) await tx.update(memoryRevisions).set({ factText: '[forgotten]' }).where(inArray(memoryRevisions.id, revisionIds));
+      const erasedMessageIds = await tx.select({ id: memorySources.messageId }).from(memorySources).where(inArray(memorySources.id, sourceIds));
+      const erasedMessageIdList = erasedMessageIds.map((item) => item.id);
+      await this.eraseSourceDerivedText(tx, sourceIds, erasedMessageIdList, now);
+      const [record] = await tx.insert(deletionRecords).values({ characterId: source.characterId, personId: source.personId, scope: source.scope, sourceIds, memoryIds, operationKey, status: 'pending' }).returning();
+      if (!record) throw new MemoryLifecycleError('invalid_state');
+      await tx.insert(jobLogs).values({ operationKey: `mem0-delete:${record.id}`, queueName: 'memory_delete', status: 'pending' })
+        .onConflictDoNothing({ target: jobLogs.operationKey });
+      await tx.insert(auditEvents).values({ actorKind: 'admin', actorId: principal.auditActorId, action: 'memory_revision_forgotten_by_admin', targetId: revisionId, metadata: { deletionRecordId: record.id, auditReason: auditReason.trim(), sourceIds, memoryIds } });
+      return record;
+    }, { isolationLevel: 'repeatable read' });
+  }
+
+  private async eraseSourceDerivedEntities(tx: Parameters<Parameters<Database['db']['transaction']>[0]>[0], messageIds: string[], now: Date) {
+    if (!messageIds.length) return;
+    const edges = await tx.select({ id: relationshipEdges.id, subjectEntityId: relationshipEdges.subjectEntityId, objectEntityId: relationshipEdges.objectEntityId })
+      .from(relationshipEdges).where(and(inArray(relationshipEdges.sourceMessageId, messageIds), isNull(relationshipEdges.validTo)));
+    if (!edges.length) return;
+    await tx.update(relationshipEdges).set({ status: 'superseded', validTo: now, version: sql`${relationshipEdges.version} + 1` })
+      .where(inArray(relationshipEdges.id, edges.map((edge) => edge.id)));
+    const impactedIds = [...new Set(edges.flatMap((edge) => [edge.subjectEntityId, edge.objectEntityId]))];
+    for (const entityId of impactedIds) {
+      const [live] = await tx.select({ id: relationshipEdges.id }).from(relationshipEdges).where(and(
+        or(eq(relationshipEdges.subjectEntityId, entityId), eq(relationshipEdges.objectEntityId, entityId)),
+        isNull(relationshipEdges.validTo),
+      )).limit(1);
+      if (!live) await tx.update(personEntities).set({ displayName: '[forgotten]', aliases: [], version: sql`${personEntities.version} + 1` }).where(eq(personEntities.id, entityId));
+    }
+  }
+
+  async eraseSourceDerivedText(tx: Parameters<Parameters<Database['db']['transaction']>[0]>[0], sourceIds: string[], messageIds: string[], now: Date): Promise<void> {
+    if (!messageIds.length) return;
+    await tx.update(messages).set({ text: null, metadata: sql`'{}'::jsonb` }).where(inArray(messages.id, messageIds));
+    await tx.update(memoryValidationRecords).set({ evidenceQuote: null }).where(inArray(memoryValidationRecords.sourceId, sourceIds));
+    await tx.update(knowledgeClaims).set({ claimText: null, status: 'deleted', validTo: sql`coalesce(${knowledgeClaims.validTo}, ${now})`, version: sql`${knowledgeClaims.version} + 1` })
+      .where(and(inArray(knowledgeClaims.sourceId, sourceIds), or(isNotNull(knowledgeClaims.claimText), sql`${knowledgeClaims.status} <> 'deleted'`)));
+    const affectedTurns = await tx.select({ id: turns.id }).from(turns).where(inArray(turns.inboundMessageId, messageIds));
+    const turnIds = affectedTurns.map(({ id }) => id);
+    if (turnIds.length) {
+      const generatedEventIds = turnIds.map((id) => `generated:${id}`);
+      await tx.update(messages).set({ text: null, metadata: sql`'{}'::jsonb` }).where(and(inArray(messages.platformEventId, generatedEventIds), eq(messages.role, 'assistant')));
+      await tx.update(deliveryOutbox).set({ content: {}, status: 'failed', errorCode: 'source_forgotten', leaseOwner: null, leaseExpiresAt: null, version: sql`${deliveryOutbox.version} + 1` })
+        .where(and(inArray(deliveryOutbox.turnId, turnIds), inArray(deliveryOutbox.status, ['pending', 'sending'])));
+    }
+    await tx.update(commitments).set({ description: null, status: sql`case when ${commitments.status} in ('scheduled', 'proposed') then 'cancelled'::companion.commitment_status else ${commitments.status} end`, version: sql`${commitments.version} + 1` })
+      .where(and(inArray(commitments.sourceMessageId, messageIds), isNotNull(commitments.description)));
+    await this.eraseSourceDerivedEntities(tx, messageIds, now);
   }
 }

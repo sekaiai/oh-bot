@@ -216,6 +216,18 @@ test('verified user source registration derives identity and is idempotent', asy
     assert.ok(prior.validTo);
     assert.ok(prior.version > approved.version);
     assert.deepEqual((await readService.listForActor(context)).map((row) => row.factText), ['更喜欢绿茶。']);
+    await assert.rejects(service.recordCandidate(context, {
+      sourceId: first.id,
+      canonicalKey: `mem0:late-new-id-${suffix}`,
+      factText: '喜欢清晨喝茶。',
+      engineMemoryId: `late-new-id-${suffix}`,
+    }), /source_unavailable/);
+    await assert.rejects(service.recordCandidate(context, {
+      sourceId: first.id,
+      canonicalKey: `mem0:late-compound-new-id-${suffix}`,
+      factText: '我喜欢清晨喝茶，也喜欢运动。',
+      engineMemoryId: `late-compound-new-id-${suffix}`,
+    }), /source_unavailable/);
     const unrelatedMessageId = uuid();
     const hypotheticalCorrectionMessageId = uuid();
     messageIds.push(unrelatedMessageId, hypotheticalCorrectionMessageId);
@@ -256,6 +268,8 @@ test('verified user source registration derives identity and is idempotent', asy
     assert.deepEqual(forgotten.memoryIds.sort(), [`mem-${suffix}`, `mem-other-key-${suffix}`].sort());
     assert.deepEqual((await database.db.select().from(memorySources).where(inArray(memorySources.id, [...forgotten.sourceIds]))).map((row) => row.status), ['deleted', 'deleted']);
     assert.equal((await database.db.select().from(memoryRevisions).where(inArray(memoryRevisions.sourceId, [...forgotten.sourceIds]))).every((row) => row.status === 'deleted'), true);
+    const forgottenMessages = await database.db.select({ text: messages.text, metadata: messages.metadata }).from(messages).where(inArray(messages.id, messageIds));
+    assert.ok(forgottenMessages.filter((row) => row.text === null).length >= 2, 'forget erases raw source and correction messages');
     assert.equal((await service.forgetSource(context, correctionSource.id)).id, forgotten.id);
     await assert.rejects(service.recordCandidate(context, {
       sourceId: first.id, canonicalKey: 'person.preference.morning-tea', factText: 'late model result', engineMemoryId: `late-${suffix}`,

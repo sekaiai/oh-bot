@@ -10,10 +10,11 @@ import { isTrustedActorContext } from '../identity/trust.js';
 const MAX_SCAN_ROWS = 1_000;
 const MAX_SOURCE_GROUPS = 1_000;
 const optionsSchema = z.object({
-  limit: z.number().int().min(1).max(100).default(20),
+  limit: z.number().int().min(1).max(MAX_SCAN_ROWS).default(20),
   offset: z.number().int().min(0).max(MAX_SCAN_ROWS - 1).default(0),
+  revisionIds: z.array(z.string().uuid()).max(MAX_SCAN_ROWS).optional(),
 }).strict().superRefine((value, context) => {
-  if (value.offset + value.limit > MAX_SCAN_ROWS) {
+  if (!value.revisionIds && value.offset + value.limit > MAX_SCAN_ROWS) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'requested page exceeds bounded memory scan' });
   }
 });
@@ -160,6 +161,7 @@ export class MemoryReadService {
           eq(memorySources.sourceKind, 'user'),
           eq(memorySources.claimKind, 'direct'),
           eq(memorySources.allowedForExtraction, true),
+          ...(options.revisionIds ? [inArray(memoryRevisions.id, options.revisionIds)] : []),
           eq(messages.role, 'user'),
           isNull(messages.deletedAt),
           inArray(memorySources.scope, allowedScopes),
@@ -268,7 +270,17 @@ export class MemoryReadService {
           version: revision.version,
         });
       }
-      return result.slice(options.offset, options.offset + options.limit);
+      return options.revisionIds ? result.slice(0, options.limit) : result.slice(options.offset, options.offset + options.limit);
     }, { isolationLevel: 'repeatable read' });
+  }
+
+  /** Final disclosure-policy authorization for query-selected candidates, bounded to 1000 IDs. */
+  async listCandidatesForActor(context: ActorContext, revisionIds: readonly string[]): Promise<ReadableMemory[]> {
+    const ids = [...new Set(revisionIds)];
+    if (ids.length > MAX_SCAN_ROWS) throw new Error('memory candidate scan exceeded its bound');
+    if (!ids.length) return [];
+    // Candidate authorization must not apply the normal display-page limit:
+    // the gateway ranks this complete bounded authorized set before limiting.
+    return this.listForActor(context, { limit: MAX_SCAN_ROWS, offset: 0, revisionIds: ids });
   }
 }
