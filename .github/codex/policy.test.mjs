@@ -48,3 +48,19 @@ test('M2b may integrate compatibility memory but M3a may not', () => {
   assert.equal(p.taskPathAllowed({id:'M2b'},'packages/compatibility/src/memory-worker.ts'),true);
   assert.equal(p.taskPathAllowed({id:'M3a'},'packages/compatibility/src/memory-worker.ts'),false);
 });
+
+test('parallel persona worker cannot edit chat, schema or channel adapter',()=>{
+  assert.equal(p.taskPathAllowed({id:'P1'},'packages/companion/src/persona/service.ts'),true);
+  assert.equal(p.taskPathAllowed({id:'P1'},'packages/companion/test/persona-service.test.ts'),true);
+  assert.equal(p.taskPathAllowed({id:'P1'},'packages/companion/src/cli/chat.ts'),false);
+  assert.equal(p.taskPathAllowed({id:'P1'},'packages/companion/src/database/schema/identity.ts'),false);
+  assert.equal(p.taskPathAllowed({id:'P1'},'packages/companion/src/channels/onebot/adapter.ts'),false);
+  assert.equal(p.taskPathAllowed({id:'P1'},'docs/implementation/progress.md'),false);
+});
+test('parallel OneBot worker cannot edit persona, identity or trusted controller',()=>{
+  assert.equal(p.taskPathAllowed({id:'Q1'},'packages/companion/src/channels/onebot/adapter.ts'),true);
+  assert.equal(p.taskPathAllowed({id:'Q1'},'packages/companion/test/onebot-protocol.test.ts'),true);
+  assert.equal(p.taskPathAllowed({id:'Q1'},'packages/companion/src/persona/service.ts'),false);
+  assert.equal(p.taskPathAllowed({id:'Q1'},'packages/companion/src/identity/trust.ts'),false);
+  assert.equal(p.taskPathAllowed({id:'Q1'},'.github/codex/controller.mjs'),false);
+});
