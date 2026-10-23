@@ -7,7 +7,8 @@ export class ApiError extends Error {
 
 const secretPatterns = [/((?:api[-_ ]?key|token|secret|password|credential)\s*[=:]\s*)[^\s,;]+/gi, /sk-[A-Za-z0-9_-]{8,}/g];
 export function redactSecrets(value: string): string {
-  return secretPatterns.reduce((result, pattern) => result.replace(pattern, '$1[已隐藏]'), value);
+  const keyed = value.replace(/(["']?(?:access.?token|token|password|credential|(?:api|provider)[_-]?key|secret)["']?\s*[:=]\s*["']?)[^"'\s,}]+/gi, '$1[已隐藏]');
+  return secretPatterns.reduce((result, pattern) => result.replace(pattern, '$1[已隐藏]'), keyed);
 }
 
 export class ApiClient {

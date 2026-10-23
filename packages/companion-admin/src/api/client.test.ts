@@ -23,6 +23,15 @@ describe('ApiClient', () => {
     }
   });
 
+  it('redacts key-addressed opaque values in structured server error strings', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: '{"accessToken":"opaque-access","password":"opaque-password"}' }), { status: 500 }));
+    const api = new ApiClient('', () => null, fetcher as typeof fetch);
+    try { await api.get('/admin/overview'); } catch (error) {
+      expect((error as ApiError).message).not.toContain('opaque-access');
+      expect((error as ApiError).message).not.toContain('opaque-password');
+    }
+  });
+
   it('rejects payloads that do not match the response schema', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ total: 'many' }), { status: 200 }));
     const api = new ApiClient('', () => null, fetcher as typeof fetch);
