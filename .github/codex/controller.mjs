@@ -166,7 +166,9 @@ export async function cycle() {
   const configPath=join(process.env.RUNNER_TEMP,'opencode.json');
   writeFileSync(configPath,JSON.stringify(config));
   let lastError;
-  for(let attempt=0;attempt<3;attempt++) {
+  // One bounded attempt per workflow run. Persist failures for the next scheduled run
+  // instead of repeating full verification and review three times in one job.
+  for(let attempt=0;attempt<1;attempt++) {
     try {
       summary('任务 '+state.task.id+'，编码/修复尝试 '+(attempt+1)+'/3');
       const prompt=readFileSync(join(control,'prompt.md'),'utf8')+'\n\n本轮唯一任务：'+state.task.id+' '+state.task.text+'\n\n'+feedback;
