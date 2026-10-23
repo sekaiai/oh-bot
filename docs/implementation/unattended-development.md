@@ -23,7 +23,7 @@ F8会产出新版部署文件、备份恢复与健康检查；真实上线必须
 
 ## 自定义 OpenAI-compatible API（编码与独立审查）
 
-在仓库 Settings → Secrets and variables → Actions 设置：
+在仓库 Settings → Secrets and variables → Actions 设置。地址和模型优先读取 Variables，也兼容保存在同名 Secrets 中；API Key 必须使用 Secrets：
 
 | 类型 | 名称 | 用途 |
 | --- | --- | --- |
@@ -40,3 +40,5 @@ F8会产出新版部署文件、备份恢复与健康检查；真实上线必须
 当前仅适用于支持 OpenAI Chat Completions 的模型；编码模型还需支持工具调用，审查模型需支持 JSON 对象格式输出。
 API 兼容性和真实编码能力必须在 Actions 运行日志中验证；没有密钥时不能完成在线测试。
 这套配置只控制无人值守编码和审查，不改变 oh-bot 业务聊天/Embedding 的提供商配置。
+
+注意：只设置 CODING_API_KEY 而没有 CODING_API_BASE_URL，或只设置 REVIEW_API_KEY 而没有 REVIEW_API_BASE_URL，会直接报配置错误，防止把新密钥发送到默认 DeepSeek 地址。可从 Actions → AI API Smoke Test → Run workflow 重新执行真实连通性测试。

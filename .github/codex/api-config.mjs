@@ -32,17 +32,28 @@ export function resolveApiConfig(env=process.env) {
   const customCodingBase = present(env,'CODING_API_BASE_URL');
   const customCodingKey = present(env,'CODING_API_KEY');
   const legacyKey = present(env,'DEEPSEEK_API_KEY');
+  // A custom secret without a URL must never be sent to the default DeepSeek host.
+  if (!customCodingBase && customCodingKey) {
+    throw new Error('CODING_API_BASE_URL variable is required when CODING_API_KEY is set');
+  }
+  if (!customCodingBase && present(env,'CODING_API_MODEL')) {
+    throw new Error('CODING_API_BASE_URL variable is required when CODING_API_MODEL is set');
+  }
   const codingBase = normalizeBaseUrl(customCodingBase || DEFAULT_BASE,'CODING_API_BASE_URL');
-  const legacy = !customCodingBase && !customCodingKey;
-  const codingKey = customCodingKey || (customCodingBase ? '' : legacyKey);
+  const legacy = !customCodingBase;
+  const codingKey = legacy ? legacyKey : customCodingKey;
   if (!codingKey) throw new Error(customCodingBase
     ? 'CODING_API_KEY secret is required for a custom coding API URL'
     : 'Set CODING_API_KEY or the legacy DEEPSEEK_API_KEY secret');
   const fallbackModel = present(env,'DEEPSEEK_MODEL').replace(/^deepseek\//,'') || DEFAULT_MODEL;
   const codingModel = modelId(present(env,'CODING_API_MODEL') || fallbackModel,'CODING_API_MODEL');
 
-  const reviewBase = normalizeBaseUrl(present(env,'REVIEW_API_BASE_URL') || codingBase,'REVIEW_API_BASE_URL');
+  const customReviewBase = present(env,'REVIEW_API_BASE_URL');
   const explicitReviewKey = present(env,'REVIEW_API_KEY');
+  if (!customReviewBase && explicitReviewKey) {
+    throw new Error('REVIEW_API_BASE_URL variable is required when REVIEW_API_KEY is set');
+  }
+  const reviewBase = normalizeBaseUrl(customReviewBase || codingBase,'REVIEW_API_BASE_URL');
   const reviewKey = explicitReviewKey || (reviewBase === codingBase ? codingKey : '');
   if (!reviewKey) throw new Error('REVIEW_API_KEY secret is required when the review API URL differs from the coding URL');
   const reviewModel = modelId(present(env,'REVIEW_API_MODEL') || codingModel,'REVIEW_API_MODEL');
