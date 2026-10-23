@@ -1,21 +1,34 @@
 # syntax=docker/dockerfile:1
 FROM node:24-trixie-slim AS build
 WORKDIR /app
-COPY . .
-RUN --mount=type=secret,id=proxy_ca,required=false \
+ENV NODE_USE_ENV_PROXY=1 COREPACK_DEFAULT_TO_LATEST=0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/companion/package.json packages/companion/package.json
+COPY packages/companion-admin/package.json packages/companion-admin/package.json
+COPY packages/compatibility/package.json packages/compatibility/package.json
+COPY packages/companion/vendor/mem0ai@3.3.1.patch packages/companion/vendor/mem0ai@3.3.1.patch
+RUN --mount=type=secret,id=proxy_ca,required=true \
   corepack enable && \
-  if [ -s /run/secrets/proxy_ca ]; then NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca pnpm install --frozen-lockfile; else pnpm install --frozen-lockfile; fi && \
+  export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca && \
+  corepack prepare pnpm@11.25.0 --activate && \
+  pnpm install --frozen-lockfile
+COPY . .
+RUN \
   pnpm --filter @oh-bot/companion build && pnpm --filter @oh-bot/companion-admin build
 
 FROM node:24-trixie-slim AS runtime
-ENV NODE_ENV=production
+ENV NODE_ENV=production NODE_USE_ENV_PROXY=1
 WORKDIR /app
 RUN --mount=type=secret,id=proxy_ca,required=false \
   set -eu; \
   if [ -s /run/secrets/proxy_ca ]; then \
-    cat /etc/ssl/certs/ca-certificates.crt /run/secrets/proxy_ca > /tmp/companion-ca-bundle.crt; \
-    apt-get -o Acquire::https::CaInfo=/tmp/companion-ca-bundle.crt update; \
-    apt-get -o Acquire::https::CaInfo=/tmp/companion-ca-bundle.crt install -y --no-install-recommends postgresql-client-17 restic ca-certificates; \
+    apt_ca=/run/secrets/proxy_ca; \
+    if [ -s /etc/ssl/certs/ca-certificates.crt ]; then \
+      cat /etc/ssl/certs/ca-certificates.crt /run/secrets/proxy_ca > /tmp/companion-ca-bundle.crt; \
+      apt_ca=/tmp/companion-ca-bundle.crt; \
+    fi; \
+    apt-get -o Acquire::https::CaInfo="$apt_ca" update; \
+    apt-get -o Acquire::https::CaInfo="$apt_ca" install -y --no-install-recommends postgresql-client-17 restic ca-certificates; \
     rm -f /tmp/companion-ca-bundle.crt; \
   else \
     apt-get update && apt-get install -y --no-install-recommends postgresql-client-17 restic ca-certificates; \

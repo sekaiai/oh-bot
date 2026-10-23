@@ -41,7 +41,21 @@ const paginatedAdminPaths = new Set([
   "/admin/job-logs",
   "/admin/turns",
   "/admin/deliveries",
+  "/admin/relationships",
+  "/admin/memory-sources",
+  "/admin/memory-revisions",
+  "/admin/deletions",
+  "/admin/agent-runs",
+  "/admin/tool-runs",
+  "/admin/jobs",
+  "/admin/commitments",
+  "/admin/proactive-permissions",
+  "/admin/backups",
+  "/admin/migrations",
+  "/admin/tools",
+  "/admin/agents",
 ]);
+const loginPath = "/admin/login";
 
 export class ApiError extends Error {
   constructor(
@@ -58,7 +72,7 @@ export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const canonicalRoute = request.routeOptions?.url;
-    if (canonicalRoute === "/health") return true;
+    if (canonicalRoute === "/health" || canonicalRoute === loginPath) return true;
     const authorization = request.headers.authorization;
     if (
       typeof authorization !== "string" ||
@@ -75,7 +89,11 @@ export class AdminGuard implements CanActivate {
       throw new ApiError(401, "unauthorized");
     }
     const requestPath = canonicalRoute;
-    const querySchema = request.method === "GET" && requestPath === "/admin/job-logs"
+    const querySchema = request.method === "GET" && requestPath === "/admin/persona/:characterId"
+      ? z.object({ version: z.coerce.number().int().positive().optional() }).strict()
+      : request.method === "GET" && ["/admin/relationships", "/admin/memory-sources", "/admin/memory-revisions", "/admin/deletions", "/admin/agent-runs", "/admin/tool-runs", "/admin/jobs", "/admin/commitments", "/admin/proactive-permissions", "/admin/backups", "/admin/migrations", "/admin/tools", "/admin/agents"].includes(requestPath ?? "")
+        ? z.object({ limit: z.coerce.number().int().min(1).max(100).optional(), cursor: z.string().max(512).optional(), status: z.string().max(64).optional(), kind: z.string().max(64).optional(), scope: z.string().max(128).optional(), personId: z.string().uuid().optional(), characterId: z.string().uuid().optional(), sourceId: z.string().uuid().optional(), toolId: z.string().max(128).optional() }).strict()
+      : request.method === "GET" && requestPath === "/admin/job-logs"
       ? jobListQuerySchema
       : request.method === "GET" && requestPath && paginatedAdminPaths.has(requestPath)
         ? listQuerySchema

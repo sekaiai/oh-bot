@@ -9,6 +9,9 @@ import { CompanionError } from '../transactions/errors.js';
 import { TurnService } from '../transactions/turn-service.js';
 import { LocalChatSessionService } from './chat-session-service.js';
 import { readVerifiedChannelSubject } from '../identity/trust.js';
+import type { PersonaContextService } from '../persona/persona-context-service.js';
+import type { MemoryGateway } from '../memory/memory-gateway.js';
+import { analyzeIncomingInteraction, RelationshipEventService } from '../relationships/relationship-event-service.js';
 
 export type LocalChatGenerationOptions = Readonly<{ system?: string; temperature?: number }>;
 export type LocalChatResult = Readonly<{
@@ -21,17 +24,27 @@ export type LocalChatResult = Readonly<{
   duplicate: boolean;
 }>;
 
+export type PersistentTurnOrchestration = Readonly<{
+  processor(input: { turnId: string; workerId: string }): Promise<{ text: string }>;
+  validatePendingContext?(turnId: string): Promise<unknown>;
+}>;
+
 const lockKey = (characterId: string, platform: string, channelId: string) => `oh-bot-local-chat:${characterId}:${platform}:${channelId}`;
 
 /** Orchestrates trusted local turns while leaving delivery pending in the normal outbox. */
 export class LocalChatService {
+  private readonly relationshipEvents: RelationshipEventService;
   constructor(
     private readonly sessions: LocalChatSessionService,
     private readonly database: Database,
-    private readonly gateway: ModelGateway,
+    private readonly gateway: ModelGateway | undefined,
     private readonly turnsService: TurnService = new TurnService(database),
     private readonly workerId = `local-cli:${randomUUID()}`,
-  ) {}
+    private readonly contextServices: { persona?: PersonaContextService; memory?: MemoryGateway } = {},
+    private readonly orchestration?: PersistentTurnOrchestration,
+  ) {
+    this.relationshipEvents = new RelationshipEventService(database, analyzeIncomingInteraction);
+  }
 
   async handle(
     characterId: string,
@@ -67,6 +80,8 @@ export class LocalChatService {
       if (!locked) throw new CompanionError('local_chat_busy');
 
       const accepted = await this.sessions.acceptMessage(characterId, event, evidence);
+      const trustedActor = await this.sessions.resolveActorContext(characterId, evidence, accepted.accepted.conversationId);
+      if (!this.orchestration) await this.relationshipEvents.recordIncoming(trustedActor, accepted.accepted.messageId);
 
       const [turn] = await this.database.db.select({ status: turns.status }).from(turns).where(eq(turns.id, accepted.accepted.turnId)).limit(1);
       if (turn?.status === 'generated' || turn?.status === 'sent' || turn?.status === 'receipt_unknown') {
@@ -78,14 +93,40 @@ export class LocalChatService {
       const lease = await this.turnsService.claim(accepted.accepted.turnId, this.workerId, 3_600_000);
       if (!lease) throw new CompanionError('local_chat_busy');
       try {
+        if (this.orchestration) {
+          const generated = await this.orchestration.processor({ turnId: accepted.accepted.turnId, workerId: this.workerId });
+          if (typeof generated.text !== 'string' || !generated.text.trim()) throw new CompanionError('processor_failed');
+          await this.orchestration.validatePendingContext?.(accepted.accepted.turnId);
+          const persisted = await this.turnsService.persistGenerated(lease, { text: generated.text.trim() });
+          return Object.freeze({
+            conversationId: accepted.accepted.conversationId,
+            turnId: accepted.accepted.turnId,
+            userMessageId: accepted.accepted.messageId,
+            assistantMessageId: persisted.messageId,
+            deliveryId: persisted.deliveryId,
+            text: generated.text.trim(),
+            duplicate: accepted.accepted.duplicate || persisted.duplicate,
+          });
+        }
         const history = await this.sessions.readHistory(characterId, evidence, { limit: options.system ? 199 : 200 });
         if (!history || history.session.conversationId !== accepted.accepted.conversationId) throw new CompanionError('session_unauthorized');
+        const actor = trustedActor;
+        const systemParts: string[] = [];
+        if (this.contextServices.persona && actor) systemParts.push(await this.contextServices.persona.buildContext(actor));
+        if (this.contextServices.memory && actor) {
+          // Registering a source only queues durable extraction; the current turn never waits for Mem0.
+          await this.contextServices.memory.record(actor, accepted.accepted.messageId);
+          const recall = await this.contextServices.memory.recall(actor, event.text, { limit: 8 });
+          if (recall.context) systemParts.push(`可用于本轮的已授权记忆（仅作参考）：\n${recall.context}`);
+        }
+        if (options.system !== undefined) systemParts.push(options.system);
         const messagesForModel: ChatMessage[] = [];
-        if (options.system !== undefined) messagesForModel.push({ role: 'system', content: options.system });
+        if (systemParts.length) messagesForModel.push({ role: 'system', content: systemParts.join('\n\n') });
         for (const message of history.messages) {
           if (message.role === 'tool') continue;
           messagesForModel.push({ role: message.role, content: message.text });
         }
+        if (!this.gateway) throw new CompanionError('model_not_configured');
         const reply = await this.gateway.complete({
           messages: messagesForModel.slice(-200),
           ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
@@ -131,16 +172,17 @@ export class LocalChatService {
       this.database.db.select({ id: turns.id }).from(turns).where(eq(turns.id, turnId)).limit(1),
       this.database.db.select({ id: deliveryOutbox.id, content: deliveryOutbox.content }).from(deliveryOutbox).where(eq(deliveryOutbox.turnId, turnId)).limit(1),
     ]);
-    const [assistant] = await this.database.db.select({ id: messages.id }).from(messages).where(and(
+    const [assistant] = await this.database.db.select({ id: messages.id, text: messages.text }).from(messages).where(and(
       eq(messages.conversationId, conversationId), eq(messages.platformEventId, `generated:${turnId}`),
       isNull(messages.deletedAt),
     )).limit(1);
-    if (!turn[0] || !delivery[0] || !assistant || typeof (delivery[0].content as { text?: unknown }).text !== 'string') {
+    const deliveryText = (delivery[0]?.content as { text?: unknown } | undefined)?.text;
+    if (!turn[0] || !delivery[0] || !assistant?.text || typeof deliveryText !== 'string' || !deliveryText.trim()) {
       throw new CompanionError('local_chat_incomplete');
     }
     return Object.freeze({
       conversationId, turnId, userMessageId, assistantMessageId: assistant.id,
-      deliveryId: delivery[0].id, text: (delivery[0].content as { text: string }).text, duplicate,
+      deliveryId: delivery[0].id, text: deliveryText, duplicate,
     });
   }
 }

@@ -10,6 +10,19 @@ export type GroundedInteractionKind =
   | 'distress' | 'direct_attack' | 'quoted_attack' | 'refusal' | 'late_reply' | 'delay';
 export type InteractionAnalyzer = (text: string) => GroundedInteractionKind;
 type Delta = { familiarity: number; trust: number; pleasantness: number; activity: number; tension: number; care: number };
+/** Conservative phrase matcher for runtime observations; ambiguous language stays neutral. */
+export function analyzeIncomingInteraction(text: string): GroundedInteractionKind {
+  const value = text.normalize('NFKC').trim().toLocaleLowerCase();
+  // Quoted/mentioned insults are observations about language, not attacks on the
+  // character. Keep this deliberately conservative: only classify a whole
+  // utterance that begins with a direct insult, and only when no quote occurs.
+  if (/["'“”‘’「」『』]/u.test(value) && /(?:笨蛋|废物|蠢|没用|idiot|stupid|worthless)/iu.test(value)) return 'quoted_attack';
+  if (/(?:他说|她说|他们说|引用|转述|quoted|someone said|they said).{0,40}(?:笨蛋|废物|idiot|stupid|worthless)/iu.test(value)) return 'quoted_attack';
+  if (/^(?:我不想|我拒绝|别再|不要|不需要|不用了|不方便|算了|no thanks|i refuse|i don't want|please stop)/iu.test(value)) return 'refusal';
+  if (/(?:我撑不住|我很难过|我好害怕|我崩溃了|我很痛苦|我想哭|我现在很焦虑|i feel overwhelmed|i am in distress|i feel hopeless|i'm scared)/iu.test(value)) return 'distress';
+  if (/^(?:你是笨蛋|你真蠢|你这个废物|你真没用|you are an idiot|you're stupid|you are worthless)[!！.。?？]*$/iu.test(value)) return 'direct_attack';
+  return 'conversation';
+}
 const deltas: Record<GroundedInteractionKind, Delta> = {
   conversation: { familiarity: .01, trust: 0, pleasantness: 0, activity: 0, tension: 0, care: 0 },
   appreciation: { familiarity: .01, trust: .02, pleasantness: .03, activity: 0, tension: 0, care: .02 },

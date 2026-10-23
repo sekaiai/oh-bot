@@ -38,6 +38,7 @@ type OneBotConfig = {
   selfId?: string;
   characterId: string;
   database: Database;
+  validateDeliveryContext?: (turnId: string) => Promise<void>;
   onInbound: (
     event: NormalizedOneBotEvent,
     evidence: ChannelEvidence,
@@ -344,6 +345,7 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
   const sendDelivery = async (deliveryId: string): Promise<DeliveryResult> => {
     try {
       const [row] = await config.database.db.select({
+        turnId: deliveryOutbox.turnId,
         content: deliveryOutbox.content,
         kind: conversations.kind,
         channel: conversations.platformConversationId,
@@ -365,6 +367,10 @@ export function createOneBotAdapter(config: OneBotConfig): OneBotAdapter {
           ? String((row.content as { text: unknown }).text)
           : '';
       if (!text || text.length > MAX_TEXT) return { kind: 'not_sent', errorCode: 'invalid_delivery_content' };
+      if (row.turnId && config.validateDeliveryContext) {
+        try { await config.validateDeliveryContext(row.turnId); }
+        catch { return { kind: 'not_sent', errorCode: 'delivery_context_invalid' }; }
+      }
 
       const targetKey = row.kind === 'group' ? 'group_id' : 'user_id';
       const action = row.kind === 'group' ? 'send_group_msg' : 'send_private_msg';

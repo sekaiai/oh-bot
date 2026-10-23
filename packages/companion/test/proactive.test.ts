@@ -58,6 +58,15 @@ test('current actor authorization rejects erased people and unconfirmed membersh
  }finally{await f.db.close();}
 });
 
+test('a forgotten source makes its scheduled commitment ineligible immediately before dispatch',async()=>{
+ const f=await fixture();try{
+  const item=await f.schedule();f.clock.value=new Date('2026-10-24T01:00:00Z');
+  await f.db.db.update(messages).set({text:null});
+  let sends=0;assert.equal(await f.service.deliverDue(item.id,async()=>{sends++;return {kind:'receipt',receipt:'must-not-send'};}),'not_authorized');
+  assert.equal(sends,0);
+ }finally{await f.db.close();}
+});
+
 test('quota reservation serializes concurrent commitments and counts in-flight dispatch',async()=>{
  const f=await fixture();let release!:()=>void,entered!:()=>void;const waiting=new Promise<void>(resolve=>{release=resolve;}),started=new Promise<void>(resolve=>{entered=resolve;});try{
   const secondMessage=uuid();await f.db.db.insert(messages).values({id:secondMessage,conversationId:f.conversationId,personId:f.personId,platform:'qq',platformEventId:`second-${f.s}`,role:'user',text:'再提醒我周末复习'});

@@ -8,8 +8,10 @@ import { Module, type DynamicModule } from "@nestjs/common";
 import type { Database } from "../database/database.js";
 import { IdentityService } from "../identity/identity-service.js";
 import { DeliveryService } from "../transactions/delivery-service.js";
+import { createMemoryRuntime } from "../application/memory-runtime.js";
 import { MemoryLifecycleService } from "../memory/memory-lifecycle-service.js";
 import { AdminController } from "./controller.js";
+import { AdminExtensionController } from "./extension-controller.js";
 import {
   AdminGuard,
   ApiExceptionFilter,
@@ -43,7 +45,7 @@ export async function createAdminApplication(
 
   const definition: DynamicModule = {
     module: AdminModule,
-    controllers: [AdminController],
+    controllers: [AdminController, AdminExtensionController],
     providers: [
       { provide: ADMIN_DATABASE, useValue: options.database },
       { provide: ADMIN_TOKEN, useValue: options.adminToken },
@@ -52,8 +54,8 @@ export async function createAdminApplication(
         useValue: {
           model:
             options.modelConfigured ??
-            Boolean(process.env.AI_BASE_URL && process.env.AI_MODEL),
-          qq: options.qqConfigured ?? Boolean(process.env.NAPCAT_WS_URL),
+            Boolean(process.env.COMPANION_CHAT_API_URL && process.env.COMPANION_CHAT_API_KEY && process.env.COMPANION_CHAT_MODEL),
+          qq: options.qqConfigured ?? (process.env.COMPANION_ONEBOT_ENABLED === '1' && Boolean(process.env.COMPANION_ONEBOT_WS_URL && process.env.COMPANION_ONEBOT_ACCESS_TOKEN && process.env.COMPANION_ONEBOT_SELF_ID && process.env.COMPANION_CHARACTER_ID)),
         },
       },
       {
@@ -64,6 +66,7 @@ export async function createAdminApplication(
         provide: "DELIVERY",
         useFactory: () => new DeliveryService(options.database),
       },
+      { provide: "MEMORY_RUNTIME", useFactory: () => createMemoryRuntime(options.database) },
       { provide: "MEMORY_LIFECYCLE", useFactory: () => new MemoryLifecycleService(options.database) },
       {
         provide: AdminGuard,
@@ -74,18 +77,25 @@ export async function createAdminApplication(
   const app = await NestFactory.create<NestFastifyApplication>(
     AdminModule.register(definition),
     new FastifyAdapter({ logger: false }),
-    { logger: false },
+    // A DI failure is a startup error for the caller, never a reason to exit
+    // the host process (the admin app is embedded by workers and tests).
+    { logger: false, abortOnError: false },
   );
-  app.useGlobalGuards(app.get(AdminGuard));
-  app.useGlobalFilters(new ApiExceptionFilter());
-  if (options.corsOrigins && options.corsOrigins.length > 0) {
-    app.enableCors({
-      origin: options.corsOrigins,
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Authorization", "Content-Type"],
-      credentials: false,
-    });
+  try {
+    app.useGlobalGuards(app.get(AdminGuard));
+    app.useGlobalFilters(new ApiExceptionFilter());
+    if (options.corsOrigins && options.corsOrigins.length > 0) {
+      app.enableCors({
+        origin: options.corsOrigins,
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Authorization", "Content-Type"],
+        credentials: false,
+      });
+    }
+    await app.init();
+    return app;
+  } catch (error) {
+    await app.close().catch(() => undefined);
+    throw error;
   }
-  await app.init();
-  return app;
 }

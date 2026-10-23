@@ -108,7 +108,7 @@ test('source-backed friendship needs two explicit confirmations and never binds 
     assert.deepEqual((await service.listForActor(actor)).map((relation) => relation.kind).sort(), ['character_friend', 'user_friend']);
     const replayedConfirmation = await service.confirmRelationship(actor, userConfirmationMessageId, { entityId: proposal.entityId, expectedVersion: proposal.version, kind: 'user_friend' });
     assert.equal(replayedConfirmation.created, false);
-    assert.equal((await database.db.select().from(personIdentityLinks)).length, 1);
+    assert.equal((await database.db.select().from(personIdentityLinks).where(eq(personIdentityLinks.aliasPersonId, actorAliasId))).length, 1);
     assert.deepEqual(await service.listForActor(otherActor), []);
 
     await assert.rejects(service.proposeIntroduction(actor, mismatchMessageId, { displayName: '小林' }), /source|evidence|friend/i);

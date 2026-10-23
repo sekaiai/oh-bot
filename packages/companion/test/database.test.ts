@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from 'drizzle-orm';
 import { createDatabase } from '../src/database/database.js';
+import { migrateDatabase } from '../src/database/migrate.js';
 import { uuid, requireCompatDatabaseUrl } from './helpers.js';
 
 const databaseUrl = requireCompatDatabaseUrl();
@@ -35,7 +36,6 @@ test('fresh database migration is repeatable and preserves existing data and con
 
   try {
     await db.execute(sql`select 1`);
-    const { migrateDatabase } = await import('../dist/index.js');
     await migrateDatabase(database);
     const migrationMetadata = await db.execute(sql`
       select table_schema from information_schema.tables

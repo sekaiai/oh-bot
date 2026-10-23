@@ -188,7 +188,7 @@ test('delivery targets come from persisted conversation and echo distinguishes r
     await database.db.insert(messages).values({id:messageId,conversationId,platform:'qq',platformEventId:`onebot-fixture:${suffix}`,role:'user',text:'inbound'});
     await database.db.insert(turns).values({id:turnId,conversationId,inboundMessageId:messageId,personId,graphThreadId:`thread:${suffix}`});
     await database.db.insert(deliveryOutbox).values({id:deliveryId,turnId,conversationId,operationKey:`turn:${turnId}:deliver`,content:{text:'literal [CQ:at,qq=all]'},status:'pending'});
-    const adapter=createOneBotAdapter({enabled:true,url:`ws://127.0.0.1:${address.port}`,accessToken:'fixture-secret',selfId:'100',characterId,database,onInbound:()=>{},requestTimeoutMs:80});
+    let authorized=true;const adapter=createOneBotAdapter({enabled:true,url:`ws://127.0.0.1:${address.port}`,accessToken:'fixture-secret',selfId:'100',characterId,database,onInbound:()=>{},validateDeliveryContext:async()=>{if(!authorized)throw new Error('graph_context_changed');},requestTimeoutMs:80});
     await adapter.start();
     for(let i=0;i<50&&wss.clients.size===0;i++)await new Promise(r=>setTimeout(r,10));
     assert.deepEqual(await adapter.sendDelivery(deliveryId),{kind:'receipt',receipt:'-9001'});
@@ -196,6 +196,10 @@ test('delivery targets come from persisted conversation and echo distinguishes r
     const sentBody=JSON.parse(requestBodies[0]!);
     assert.equal(sentBody.params.message,'literal [CQ:at,qq=all]');
     assert.equal(sentBody.params.auto_escape,true);
+    const requestsBeforeRevocation=requestBodies.length;authorized=false;
+    assert.deepEqual(await adapter.sendDelivery(deliveryId),{kind:'not_sent',errorCode:'delivery_context_invalid'});
+    assert.equal(requestBodies.length,requestsBeforeRevocation);
+    authorized=true;
     behavior='failure';assert.deepEqual(await adapter.sendDelivery(deliveryId),{kind:'not_sent',errorCode:'onebot_api_failed'});
     behavior='invalid_receipt';assert.deepEqual(await adapter.sendDelivery(deliveryId),{kind:'unknown',errorCode:'onebot_send_unknown'});
     const otherCharacterAdapter=createOneBotAdapter({enabled:true,url:`ws://127.0.0.1:${address.port}`,accessToken:'fixture-secret',selfId:'100',characterId:uuid(),database,onInbound:()=>{}});

@@ -80,7 +80,7 @@ export class DeliveryService {
         version: sql`${deliveryOutbox.version} + 1`,
         updatedAt: now,
       }).where(eq(deliveryOutbox.id, delivery.id));
-      await tx.update(turns).set({
+      if (delivery.turnId) await tx.update(turns).set({
         status: status === 'sent' ? 'sent' : status === 'failed' ? 'failed' : 'receipt_unknown',
         errorCode: result.kind === 'receipt' ? null : result.errorCode,
         version: sql`${turns.version} + 1`,
@@ -109,7 +109,7 @@ export class DeliveryService {
           version: sql`${deliveryOutbox.version} + 1`,
           updatedAt: now,
         }).where(eq(deliveryOutbox.id, delivery.id));
-        await tx.update(turns).set({
+        if (delivery.turnId) await tx.update(turns).set({
           status: 'receipt_unknown',
           errorCode: 'receipt_unknown',
           version: sql`${turns.version} + 1`,
@@ -154,27 +154,29 @@ export class DeliveryService {
         version: sql`${deliveryOutbox.version} + 1`,
         updatedAt: now,
       }).where(eq(deliveryOutbox.id, deliveryId));
-      await tx.update(turns).set({
+      if (delivery.turnId) await tx.update(turns).set({
         status: decision === 'sent' ? 'sent' : 'generated',
         errorCode: null,
         version: sql`${turns.version} + 1`,
         updatedAt: now,
       }).where(eq(turns.id, delivery.turnId));
-      const operationKey = `turn:${delivery.turnId}:deliver`;
-      await tx.update(businessOutbox).set({
-        status: decision === 'retry' ? 'pending' : 'dispatched',
-        leaseOwner: null,
-        leaseExpiresAt: null,
-        availableAt: now,
-        lastErrorCode: null,
-        updatedAt: now,
-      }).where(eq(businessOutbox.operationKey, operationKey));
-      await tx.update(jobLogs).set({
-        status: decision === 'retry' ? 'pending' : 'completed',
-        errorCode: null,
-        nextRunAt: decision === 'retry' ? now : null,
-        updatedAt: now,
-      }).where(eq(jobLogs.operationKey, operationKey));
+      if (delivery.turnId) {
+        const operationKey = `turn:${delivery.turnId}:deliver`;
+        await tx.update(businessOutbox).set({
+          status: decision === 'retry' ? 'pending' : 'dispatched',
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          availableAt: now,
+          lastErrorCode: null,
+          updatedAt: now,
+        }).where(eq(businessOutbox.operationKey, operationKey));
+        await tx.update(jobLogs).set({
+          status: decision === 'retry' ? 'pending' : 'completed',
+          errorCode: null,
+          nextRunAt: decision === 'retry' ? now : null,
+          updatedAt: now,
+        }).where(eq(jobLogs.operationKey, operationKey));
+      }
       await tx.insert(auditEvents).values({
         actorKind: 'admin',
         actorId: principal.auditActorId,
@@ -183,6 +185,39 @@ export class DeliveryService {
         metadata: { decision },
       });
     });
+  }
+
+  /** Persist an opt-in proactive send through the same delivery outbox and lease fence as chat. */
+  async stageStandalone(input: { conversationId: string; operationKey: string; content: { text: string } }): Promise<string> {
+    if (!uuidSchema.safeParse(input.conversationId).success || !/^commitment:[0-9a-f-]{36}$/.test(input.operationKey) ||
+        typeof input.content?.text !== 'string' || !input.content.text.trim() || input.content.text.length > 32_000) {
+      throw new CompanionError('invalid_input');
+    }
+    return this.database.db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(deliveryOutbox).where(eq(deliveryOutbox.operationKey, input.operationKey)).for('update').limit(1);
+      if (existing) {
+        if (existing.turnId !== null || existing.conversationId !== input.conversationId || (existing.content as { text?: unknown }).text !== input.content.text) throw new CompanionError('replay_conflict');
+        return existing.id;
+      }
+      const [row] = await tx.insert(deliveryOutbox).values({
+        turnId: null, conversationId: input.conversationId, operationKey: input.operationKey,
+        content: input.content, status: 'pending',
+      }).returning({ id: deliveryOutbox.id });
+      if (!row) throw new CompanionError('transaction_failed');
+      return row.id;
+    });
+  }
+
+  async dispatchStandalone(deliveryId: string, workerId: string, sender: (input: { deliveryId: string; content: unknown; operationKey: string }) => Promise<DeliveryResult>): Promise<DeliveryResult | null> {
+    const token = await this.claimPending(deliveryId, workerId, 60_000);
+    if (!token) return null;
+    const [row] = await this.database.db.select().from(deliveryOutbox).where(eq(deliveryOutbox.id, deliveryId)).limit(1);
+    if (!row || row.turnId !== null) throw new CompanionError('invalid_delivery');
+    let result: DeliveryResult;
+    try { result = await sender({ deliveryId, content: row.content, operationKey: row.operationKey }); }
+    catch { result = { kind: 'unknown', errorCode: 'sender_result_unknown' }; }
+    await this.finish(token, result);
+    return result;
   }
 
   private validateClaim(deliveryId: string, workerId: string, leaseMs: number): void {

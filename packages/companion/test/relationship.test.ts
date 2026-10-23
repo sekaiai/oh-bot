@@ -1,6 +1,6 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
 import { createDatabase } from '../src/database/database.js'; import { migrateDatabase } from '../src/database/migrate.js'; import { eq } from 'drizzle-orm';
-import { RelationshipEventService } from '../src/relationships/relationship-event-service.js'; import { createVerifiedChannelEvidence,trustActorContext } from '../src/identity/trust.js';
+import { analyzeIncomingInteraction, RelationshipEventService } from '../src/relationships/relationship-event-service.js'; import { createVerifiedChannelEvidence,trustActorContext } from '../src/identity/trust.js';
 import { characters,people,platformIdentities,conversations,conversationMembers,messages,interactionEvents,relationshipStates,emotionStates,personIdentityLinks } from '../src/database/schema/index.js'; import { uuid,requireCompatDatabaseUrl } from './helpers.js';
 test('relationship events are source validated, deterministic, replay safe and never penalize delay or refusal',async()=>{
  const db=createDatabase(requireCompatDatabaseUrl()),s=uuid(),c=uuid(),p=uuid(),i=uuid(),cv=uuid(),m=uuid(); try { await migrateDatabase(db);
@@ -20,4 +20,11 @@ test('relationship events are source validated, deterministic, replay safe and n
  const failed=new RelationshipEventService(db,()=>{throw new Error('analyzer offline')}); assert.equal((await failed.recordIncoming(actor,m)).applied,false); assert.equal((await db.db.select().from(relationshipStates).where(eq(relationshipStates.personId,p)))[0]!.trust,0);
  const relinkedRoot=uuid();await db.db.insert(people).values({id:relinkedRoot});await db.db.insert(personIdentityLinks).values({aliasPersonId:p,canonicalPersonId:relinkedRoot});await assert.rejects(svc.recordIncoming(actor,m),/stale/);
  } finally { await db.close(); }
+});
+test('default incoming analyzer leaves quoted and negated insults neutral',()=>{
+ assert.equal(analyzeIncomingInteraction('You are worthless'),'direct_attack');
+ assert.equal(analyzeIncomingInteraction('我从没说过“你是笨蛋”'),'quoted_attack');
+ assert.equal(analyzeIncomingInteraction('别说“你是笨蛋”，那是伤人的话'),'quoted_attack');
+ assert.equal(analyzeIncomingInteraction('我没有叫你笨蛋'),'conversation');
+ assert.equal(analyzeIncomingInteraction('You are worthless, someone said'),'conversation');
 });

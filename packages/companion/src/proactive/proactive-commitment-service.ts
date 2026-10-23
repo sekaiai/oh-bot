@@ -3,7 +3,7 @@ import { and, eq, inArray, isNotNull, like, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../database/database.js';
 import {
-  auditEvents, commitments, conversationMembers, conversationPolicies, conversations, messages,
+  auditEvents, commitments, conversationMembers, conversationPolicies, conversations, deliveryOutbox, messages,
   operationKeys, people, platformIdentities, proactivePermissions,
 } from '../database/schema/index.js';
 import type { ActorContext } from '../domain/contracts.js';
@@ -37,10 +37,10 @@ export class ProactiveCommitmentService {
     }
     return this.database.db.transaction(async (tx) => {
       const current = await requireCurrentActor(tx, actor);
-      const [source] = await tx.select({ id: messages.id, personId: messages.personId }).from(messages).where(and(
+      const [source] = await tx.select({ id: messages.id, personId: messages.personId, text: messages.text, deletedAt: messages.deletedAt }).from(messages).where(and(
         eq(messages.id, sourceMessageId), eq(messages.role, 'user'), eq(messages.conversationId, current.conversation.id),
       )).limit(1);
-      if (!source?.personId || await canonicalPersonId(tx, source.personId) !== current.personId) throw new Error('source message unavailable');
+      if (!source?.personId || source.text === null || source.deletedAt || await canonicalPersonId(tx, source.personId) !== current.personId) throw new Error('source message unavailable');
       const [permission] = await tx.select().from(proactivePermissions).where(and(
         eq(proactivePermissions.characterId, actor.characterId), eq(proactivePermissions.personId, current.personId),
       )).limit(1);
@@ -86,6 +86,23 @@ export class ProactiveCommitmentService {
     const finished = await this.finish(claim.value, result);
     if (!finished) return 'receipt_unknown';
     return result.kind === 'receipt' ? 'sent' : result.kind === 'not_sent' ? 'failed' : 'receipt_unknown';
+  }
+
+  /** Recheck a claimed commitment at the transport boundary after its outbox row was read. */
+  async validateStandaloneDelivery(deliveryId: string): Promise<boolean> {
+    if (!uuidSchema.safeParse(deliveryId).success) return false;
+    return this.database.db.transaction(async (tx) => {
+      const [delivery] = await tx.select().from(deliveryOutbox).where(eq(deliveryOutbox.id, deliveryId)).limit(1);
+      if (!delivery || delivery.turnId !== null || delivery.status !== 'sending') return false;
+      const [item] = await tx.select().from(commitments).where(eq(commitments.operationKey, delivery.operationKey)).limit(1);
+      const content = delivery.content && typeof delivery.content === 'object' ? (delivery.content as { text?: unknown }).text : undefined;
+      if (!item || item.status !== 'scheduled' || !item.jobId?.startsWith('sending:') || item.conversationId !== delivery.conversationId || content !== item.description) return false;
+      const fence = Number(item.jobId.slice('sending:'.length));
+      if (!Number.isSafeInteger(fence) || fence < 1) return false;
+      const [operation] = await tx.select().from(operationKeys).where(eq(operationKeys.key, deliveryKey(item.id))).limit(1);
+      if (!operation || operation.kind !== 'proactive_delivery' || operation.status !== 'leased' || operation.version !== fence || operation.resultRef !== 'dispatching' || !operation.leaseExpiresAt || operation.leaseExpiresAt <= this.clock()) return false;
+      return Boolean(await this.authorizeCommitment(tx, item));
+    });
   }
 
   async recoverExpiredClaims(): Promise<number> {
@@ -263,8 +280,8 @@ export class ProactiveCommitmentService {
     if (!membership) return undefined;
     const identities = await tx.select({ id: platformIdentities.id }).from(platformIdentities).where(and(inArray(platformIdentities.personId, linked), eq(platformIdentities.platform, conversation.platform), isNotNull(platformIdentities.verifiedAt)));
     if (!identities.length) return undefined;
-    const [source] = await tx.select({ id: messages.id, personId: messages.personId }).from(messages).where(and(eq(messages.id, item.sourceMessageId), eq(messages.conversationId, conversation.id), eq(messages.role, 'user'))).limit(1);
-    if (!source?.personId || await canonicalPersonId(tx, source.personId) !== item.personId) return undefined;
+    const [source] = await tx.select({ id: messages.id, personId: messages.personId, text: messages.text, deletedAt: messages.deletedAt }).from(messages).where(and(eq(messages.id, item.sourceMessageId), eq(messages.conversationId, conversation.id), eq(messages.role, 'user'))).limit(1);
+    if (!source?.personId || source.text === null || source.deletedAt || await canonicalPersonId(tx, source.personId) !== item.personId) return undefined;
     const [permission] = await tx.select().from(proactivePermissions).where(and(eq(proactivePermissions.characterId, item.characterId), eq(proactivePermissions.personId, item.personId))).limit(1);
     if (!permission?.enabled) return undefined;
     let policy: typeof conversationPolicies.$inferSelect | undefined;

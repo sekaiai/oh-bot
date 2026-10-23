@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import * as schema from "../database/schema/index.js";
 import type { Database } from "../database/database.js";
+import journal from "../../drizzle/meta/_journal.json" with { type: "json" };
 
 const drizzleName = Symbol.for("drizzle:Name");
 const drizzleSchema = Symbol.for("drizzle:Schema");
@@ -16,8 +17,7 @@ export const requiredCompanionTables = Object.values(schema).flatMap(
   },
 );
 
-// Keep this in sync with the latest index in drizzle/meta/_journal.json.
-const expectedMigrationCount = 7;
+const expectedMigrationCount = journal.entries.length;
 
 /** Read-only readiness shared by public health, admin status and worker startup. */
 export async function checkWorkerQueueReady(database: Database): Promise<boolean> {

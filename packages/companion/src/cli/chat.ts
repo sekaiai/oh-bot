@@ -2,7 +2,8 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import {
   loadChatProviderConfig,
   ModelGatewayError,
@@ -17,9 +18,11 @@ import { LocalChatSessionService } from '../conversations/chat-session-service.j
 import { LocalChatService } from '../conversations/local-chat-service.js';
 import { loadOrCreateLocalProfile, ensureLocalCharacter } from './local-profile.js';
 import { CompanionError } from '../transactions/errors.js';
+import { createMemoryRuntime } from '../application/memory-runtime.js';
+import { createTurnProcessor } from '../application/turn-processor.js';
 
 const USAGE = [
-  'usage: pnpm exec tsx packages/companion/src/cli/chat.ts [--persistent] [--session-file <path>] [--system <text>] [--max-turns <n>] [--temperature <n>] [--verbose]',
+  'usage: pnpm exec tsx packages/companion/src/cli/chat.ts [--persistent | --sandbox] [--session-file <path>] [--sandbox-file <path>] [--system <text>] [--max-turns <n>] [--temperature <n>] [--verbose]',
   '',
   'Local development terminal chat for the companion model gateway.',
   'Requires explicit business chat configuration:',
@@ -27,6 +30,8 @@ const USAGE = [
   '  COMPANION_CHAT_API_KEY   provider API key (never printed)',
   '  COMPANION_CHAT_MODEL     provider model name',
   'Persistent mode also requires COMPANION_DATABASE_URL and an explicit prior `pnpm --dir packages/companion db:migrate`.',
+  'Sandbox mode keeps persona calibration in a separate local JSON file and never opens the companion database.',
+  'In sandbox mode, use /persona <text> to set a trial persona and /persona to inspect it.',
 ].join('\n');
 
 type CliOptions = {
@@ -35,7 +40,9 @@ type CliOptions = {
   temperature?: number;
   verbose: boolean;
   persistent: boolean;
+  sandbox: boolean;
   sessionFile?: string;
+  sandboxFile?: string;
 };
 
 const MAX_MESSAGE_CHARS = 32_000;
@@ -43,7 +50,7 @@ const MAX_MESSAGE_CHARS = 32_000;
 class UsageError extends Error {}
 
 function parseArgs(argv: readonly string[]): CliOptions | 'help' {
-  const options: CliOptions = { verbose: false, persistent: false };
+  const options: CliOptions = { verbose: false, persistent: false, sandbox: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     switch (arg) {
@@ -56,10 +63,19 @@ function parseArgs(argv: readonly string[]): CliOptions | 'help' {
       case '--persistent':
         options.persistent = true;
         break;
+      case '--sandbox':
+        options.sandbox = true;
+        break;
       case '--session-file': {
         const value = argv[++index];
         if (!value || value.length > 4096) throw new UsageError();
         options.sessionFile = value;
+        break;
+      }
+      case '--sandbox-file': {
+        const value = argv[++index];
+        if (!value || value.length > 4096) throw new UsageError();
+        options.sandboxFile = value;
         break;
       }
       case '--system': {
@@ -86,7 +102,31 @@ function parseArgs(argv: readonly string[]): CliOptions | 'help' {
         throw new UsageError();
     }
   }
+  if (options.persistent && options.sandbox) throw new UsageError();
   return options;
+}
+
+export async function loadSandboxPersona(path: string): Promise<string> {
+  try {
+    const decoded: unknown = JSON.parse(await readFile(path, 'utf8'));
+    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded) ||
+      typeof (decoded as { persona?: unknown }).persona !== 'string' ||
+      (decoded as { persona: string }).persona.length > MAX_MESSAGE_CHARS) throw new Error('sandbox_persona_invalid');
+    return (decoded as { persona: string }).persona;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw new Error('sandbox_persona_invalid');
+  }
+}
+
+export async function saveSandboxPersona(path: string, persona: string): Promise<void> {
+  const target = resolve(path);
+  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  const file = await open(temporary, 'wx', 0o600);
+  try { await file.writeFile(`${JSON.stringify({ version: 1, persona }, null, 2)}\n`, 'utf8'); await file.sync(); }
+  finally { await file.close(); }
+  await rename(temporary, target);
 }
 
 function failureCode(error: unknown): string {
@@ -112,34 +152,50 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  let gateway: OpenAiCompatibleChatGateway;
-  try {
-    gateway = new OpenAiCompatibleChatGateway({ config: loadChatProviderConfig(process.env) });
-  } catch (error) {
-    printFailure(error);
-    return 1;
+  let gateway: OpenAiCompatibleChatGateway | undefined;
+  if (!options.persistent) {
+    try {
+      gateway = new OpenAiCompatibleChatGateway({ config: loadChatProviderConfig(process.env) });
+    } catch (error) {
+      printFailure(error);
+      return 1;
+    }
   }
 
-  const target = gateway.target;
+  const target = gateway?.target ?? { model: 'database-bound profile', host: 'configured provider', path: '' };
   output.write(`model: ${target.model} @ ${target.host}${target.path}\n`);
   output.write('type /exit to quit\n');
 
   const messages: ChatMessage[] = [];
-  if (options.system) messages.push({ role: 'system', content: options.system });
+  if (options.system && !options.sandbox) messages.push({ role: 'system', content: options.system });
+  const sandboxPath = options.sandbox ? resolve(options.sandboxFile ?? '.local/companion-sandbox/persona.json') : undefined;
+  let sandboxPersona = '';
+  if (sandboxPath) {
+    try { sandboxPersona = await loadSandboxPersona(sandboxPath); }
+    catch { output.write('error: sandbox_persona_invalid\n'); return 1; }
+    output.write(`sandbox persona file: ${sandboxPath}\n`);
+  }
 
   let database: ReturnType<typeof createDatabase> | undefined;
   let localChat: LocalChatService | undefined;
+  let processorRuntime: Awaited<ReturnType<typeof createTurnProcessor>> | undefined;
+  let memoryRuntime: Awaited<ReturnType<typeof createMemoryRuntime>>;
   let profile: Awaited<ReturnType<typeof loadOrCreateLocalProfile>> | undefined;
   let evidence: ReturnType<typeof createVerifiedChannelEvidence> | undefined;
   if (options.persistent) {
     try {
       profile = await loadOrCreateLocalProfile(resolve(options.sessionFile ?? '.local/companion-profile.json'));
-      database = createDatabase(loadDatabaseConfig(process.env).databaseUrl);
+      const databaseUrl = loadDatabaseConfig(process.env).databaseUrl;
+      database = createDatabase(databaseUrl);
       await ensureLocalCharacter(database, profile);
+      memoryRuntime = await createMemoryRuntime(database);
       const identity = new IdentityService(database);
-      localChat = new LocalChatService(new LocalChatSessionService(database, identity), database, gateway);
+      processorRuntime = await createTurnProcessor({ database, databaseUrl, memory: memoryRuntime?.gateway, setupCheckpoint: true });
+      localChat = new LocalChatService(new LocalChatSessionService(database, identity), database, gateway, undefined, undefined, {}, processorRuntime);
       evidence = createVerifiedChannelEvidence('qq', profile.channelId, profile.userId, 'private');
     } catch (error) {
+      if (memoryRuntime) await memoryRuntime.close().catch(() => undefined);
+      if (processorRuntime) await processorRuntime.close().catch(() => undefined);
       if (database) await database.close().catch(() => undefined);
       const code = error instanceof Error && ['local_profile_invalid', 'local_profile_unavailable'].includes(error.message)
         ? error.message : process.env.COMPANION_DATABASE_URL ? 'persistent_chat_unavailable' : 'database_not_configured';
@@ -160,6 +216,21 @@ async function main(): Promise<number> {
       const text = line.trim();
       if (text === '') continue;
       if (text === '/exit' || text === '/quit') break;
+      if (sandboxPath && text === '/persona') {
+        output.write(`persona> ${sandboxPersona || '(empty)'}\n`);
+        continue;
+      }
+      if (sandboxPath && text.startsWith('/persona ')) {
+        const proposed = text.slice('/persona '.length).trim();
+        if (!proposed || proposed.length > MAX_MESSAGE_CHARS) {
+          output.write('error: sandbox_persona_invalid\n');
+          continue;
+        }
+        try { await saveSandboxPersona(sandboxPath, proposed); sandboxPersona = proposed; }
+        catch { output.write('error: sandbox_persona_unavailable\n'); continue; }
+        output.write('persona updated (sandbox only)\n');
+        continue;
+      }
       if (text.length > MAX_MESSAGE_CHARS) {
         output.write(`error: message_too_long (max ${MAX_MESSAGE_CHARS} characters)\n`);
         continue;
@@ -175,7 +246,10 @@ async function main(): Promise<number> {
           reply = { text: result.text, model: target.model, finishReason: null, usage: null };
         } else {
           messages.push({ role: 'user', content: text });
-          reply = await gateway.complete({ messages, ...(options.temperature === undefined ? {} : { temperature: options.temperature }) });
+          const system = options.sandbox
+            ? [options.system, sandboxPersona ? `Trial persona for this isolated sandbox conversation:\n${sandboxPersona}` : ''].filter(Boolean).join('\n\n')
+            : '';
+          reply = await gateway!.complete({ messages: system ? [{ role: 'system', content: system }, ...messages] : messages, ...(options.temperature === undefined ? {} : { temperature: options.temperature }) });
           messages.push({ role: 'assistant', content: reply.text });
         }
       } catch (error) {
@@ -194,6 +268,8 @@ async function main(): Promise<number> {
     return 0;
   } finally {
     terminal.close();
+    if (processorRuntime) await processorRuntime.close().catch(() => undefined);
+    if (memoryRuntime) await memoryRuntime.close().catch(() => undefined);
     if (database) await database.close().catch(() => undefined);
   }
 }

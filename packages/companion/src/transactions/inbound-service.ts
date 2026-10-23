@@ -58,6 +58,7 @@ export class InboundService {
     characterId: string,
     input: InboundEvent,
     evidence: VerifiedChannelEvidence,
+    rosterEvidence?: TrustedRosterEvidence,
   ): Promise<InboundAccepted> {
     const parsed = inboundEventSchema.safeParse(input);
     if (!parsed.success || !characterIdSchema.safeParse(characterId).success) {
@@ -68,6 +69,19 @@ export class InboundService {
       !isTrustedEvidence(evidence, event.senderPlatformId, event.conversationKind, event.conversationPlatformId) ||
       evidence.platform !== event.platform
     ) throw new CompanionError('invalid_evidence');
+    const trustedRoster = rosterEvidence ? readTrustedRoster(rosterEvidence) : undefined;
+    if (event.conversationKind === 'group' && rosterEvidence &&
+      (!trustedRoster || trustedRoster.platform !== event.platform || trustedRoster.channelId !== event.conversationPlatformId || !trustedRoster.memberIds.includes(event.senderPlatformId))) {
+      throw new CompanionError('invalid_roster_evidence');
+    }
+    const rosterMembers: Array<{ personId: string }> = [];
+    if (trustedRoster) for (const platformUserId of trustedRoster.memberIds) {
+      try {
+        const proof = createRosterMemberEvidence(rosterEvidence, platformUserId);
+        const resolved = await this.identityService.resolveIdentity({ platform: event.platform, platformUserId }, proof);
+        rosterMembers.push({ personId: resolved.personId });
+      } catch { throw new CompanionError('identity_resolution_failed'); }
+    }
 
     let identity: Awaited<ReturnType<IdentityService['resolveIdentity']>>;
     try {
@@ -145,6 +159,12 @@ export class InboundService {
           version: sql`${conversations.version} + 1`,
           updatedAt: receivedAt,
         }).where(eq(conversations.id, conversation.id));
+        if (trustedRoster) {
+          const uniqueMembers = [...new Map(rosterMembers.map((member) => [member.personId, member])).values()];
+          await tx.delete(conversationMembers).where(eq(conversationMembers.conversationId, conversation.id));
+          await tx.insert(conversationMembers).values(uniqueMembers.map((member) => ({ conversationId: conversation.id, personId: member.personId, confirmedAt: receivedAt })));
+          await tx.update(conversations).set({ participantsComplete: true, rosterObservedAt: receivedAt, updatedAt: receivedAt, version: sql`${conversations.version} + 1` }).where(eq(conversations.id, conversation.id));
+        }
         const [message] = await tx.insert(messages).values({
           conversationId: conversation.id,
           personId: identity.personId,
@@ -154,7 +174,21 @@ export class InboundService {
           text: event.text,
           occurredAt: new Date(event.timestamp),
           receivedAt,
-          metadata: { fingerprint: digest, replyToEventId: event.replyToEventId ?? null },
+          metadata: {
+            fingerprint: digest,
+            replyToEventId: event.replyToEventId ?? null,
+            // This marker is written only after the in-process VerifiedChannelEvidence
+            // was validated above. A worker must still re-check every field against
+            // the immutable message, conversation, identity and current membership.
+            authenticatedChannel: {
+              version: 1,
+              platform: event.platform,
+              platformUserId: event.senderPlatformId,
+              channelId: event.conversationPlatformId,
+              conversationKind: event.conversationKind,
+              platformIdentityId: identity.platformIdentityId,
+            },
+          },
         }).returning({ id: messages.id });
         if (!message) throw new CompanionError('transaction_failed');
 

@@ -1,16 +1,117 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { eq, inArray } from 'drizzle-orm';
 import { createDatabase, type Database } from '../src/database/database.js';
 import { migrateDatabase } from '../src/database/migrate.js';
-import { businessOutbox, characters, conversationMembers, conversations, deliveryOutbox, messages, people, platformIdentities, turns } from '../src/database/schema/index.js';
+import { businessOutbox, characters, conversationMembers, conversations, deliveryOutbox, emotionStates, interactionEvents, messages, modelProfiles, modelRoleBindings, modelUsage, people, platformIdentities, relationshipStates, turns } from '../src/database/schema/index.js';
 import { IdentityService } from '../src/identity/identity-service.js';
 import { createVerifiedChannelEvidence } from '../src/identity/trust.js';
 import { LocalChatSessionService } from '../src/conversations/chat-session-service.js';
 import { LocalChatService } from '../src/conversations/local-chat-service.js';
 import { ModelGatewayError } from '../src/models/chat-gateway.js';
 import { TurnService } from '../src/transactions/turn-service.js';
+import { PersonaContextService } from '../src/persona/persona-context-service.js';
+import { resolvePersistedTurnActor } from '../src/application/trusted-turn-actor.js';
+import { isTrustedActorContext } from '../src/identity/trust.js';
+import { createTurnProcessor } from '../src/application/turn-processor.js';
 import { uuid, requireCompatDatabaseUrl } from './helpers.js';
+
+async function clearRelationshipEvents(database: Database, conversationIds: string[]) {
+  if (!conversationIds.length) return;
+  const sourceRows = await database.db.select({ id: messages.id }).from(messages).where(inArray(messages.conversationId, conversationIds));
+  const sourceIds = sourceRows.map(({ id }) => id);
+  if (sourceIds.length) await database.db.delete(interactionEvents).where(inArray(interactionEvents.sourceMessageId, sourceIds));
+}
+async function clearRelationshipState(database: Database, personIds: string[]) {
+  if (!personIds.length) return;
+  await database.db.delete(emotionStates).where(inArray(emotionStates.personId, personIds));
+  await database.db.delete(relationshipStates).where(inArray(relationshipStates.personId, personIds));
+}
+
+test('persistent local chat uses the bound graph model with authorized multi-turn history and monthly usage', async () => {
+  const database = createDatabase(requireCompatDatabaseUrl());
+  const characterId = uuid(); const profileId = uuid(); const suffix = uuid();
+  const userId = `local-cli:user:${suffix}`; const channelId = `local-cli:channel:${suffix}`;
+  const evidence = createVerifiedChannelEvidence('qq', channelId, userId, 'private');
+  const priorPricing = process.env.COMPANION_MODEL_PRICING_JSON;
+  const priorKey = process.env.LOCAL_GRAPH_KEY;
+  const serverRequests: Array<{ body: any; authorization: string | undefined }> = [];
+  const server = createServer(async (request, response) => {
+    let raw = ''; for await (const part of request) raw += part;
+    const body = JSON.parse(raw); serverRequests.push({ body, authorization: request.headers.authorization });
+    const answer = `graph-answer-${serverRequests.length}`;
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ id: `fixture-${serverRequests.length}`, object: 'chat.completion', created: 1, model: body.model,
+      choices: [{ index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); assert.ok(address && typeof address === 'object');
+  let processorRuntime: Awaited<ReturnType<typeof createTurnProcessor>> | undefined;
+  let primaryError: unknown;
+  let conversationId: string | undefined; let turnIds: string[] = []; let identityId: string | undefined; let personId: string | undefined;
+  try {
+    process.env.LOCAL_GRAPH_KEY = 'fixture-secret';
+    process.env.COMPANION_MODEL_PRICING_JSON = JSON.stringify({ 'local-graph-model': { inputUsdPer1M: 1, outputUsdPer1M: 2 } });
+    await migrateDatabase(database);
+    await database.db.insert(characters).values({ id: characterId, name: `local-graph-${suffix}` });
+    await database.db.insert(modelProfiles).values({ id: profileId, name: `local-graph-${suffix}`, purpose: 'chat', provider: 'openai', baseUrl: `http://127.0.0.1:${address.port}/v1`, model: 'local-graph-model', credentialRef: 'LOCAL_GRAPH_KEY', enabled: true, maxTokens: 128, timeoutMs: 2_000, monthlyBudgetUsd: '1' });
+    await database.db.insert(modelRoleBindings).values({ characterId, purpose: 'chat', profileId });
+    const databaseUrl = requireCompatDatabaseUrl();
+    processorRuntime = await createTurnProcessor({ database, databaseUrl, setupCheckpoint: true });
+    const identity = new IdentityService(database); const sessions = new LocalChatSessionService(database, identity);
+    const service = new LocalChatService(sessions, database, undefined, undefined, undefined, {}, processorRuntime);
+    const send = (eventId: string, text: string) => service.handle(characterId, {
+      platform: 'qq', eventId, senderPlatformId: userId, conversationPlatformId: channelId, conversationKind: 'private', text,
+      timestamp: new Date().toISOString(), participantPlatformIds: [], participantsComplete: false,
+    }, evidence);
+    const first = await send(`local-graph-first-${suffix}`, 'first turn');
+    const second = await send(`local-graph-second-${suffix}`, 'second turn');
+    conversationId = first.conversationId; turnIds = [first.turnId, second.turnId];
+    assert.equal(first.text, 'graph-answer-1'); assert.equal(second.text, 'graph-answer-2');
+    assert.equal(serverRequests.length, 2);
+    assert.equal(serverRequests[0]?.authorization, 'Bearer fixture-secret');
+    assert.equal(JSON.stringify(serverRequests[0]?.body.messages).includes('first turn'), true);
+    assert.equal(JSON.stringify(serverRequests[1]?.body.messages).includes('graph-answer-1'), true);
+    const usage = await database.db.select().from(modelUsage).where(eq(modelUsage.profileId, profileId));
+    assert.equal(usage.length, 2);
+    assert.ok(usage.every((row) => Number(row.actualUsd) > 0));
+    const identities = await database.db.select({ id: platformIdentities.id, personId: platformIdentities.personId }).from(platformIdentities).where(eq(platformIdentities.platformUserId, userId));
+    identityId = identities[0]?.id; personId = identities[0]?.personId;
+  } catch (error) { primaryError = error; throw error; }
+  finally {
+    if (processorRuntime) await processorRuntime.close().catch(() => undefined);
+    let cleanupError: unknown;
+    try {
+      if (conversationId) {
+        const sources = await database.db.select({ id: messages.id }).from(messages).where(eq(messages.conversationId, conversationId));
+        if (sources.length) await database.db.delete(interactionEvents).where(inArray(interactionEvents.sourceMessageId, sources.map(({ id }) => id)));
+        if (turnIds.length) await database.db.delete(businessOutbox).where(inArray(businessOutbox.operationKey, turnIds.flatMap((id) => [`turn:${id}:process`, `turn:${id}:deliver`])));
+        if (turnIds.length) await database.db.delete(deliveryOutbox).where(inArray(deliveryOutbox.turnId, turnIds));
+        await database.db.delete(turns).where(inArray(turns.id, turnIds));
+        await database.db.delete(messages).where(eq(messages.conversationId, conversationId));
+        await database.db.delete(conversationMembers).where(eq(conversationMembers.conversationId, conversationId));
+        await database.db.delete(conversations).where(eq(conversations.id, conversationId));
+      }
+      await database.db.delete(modelUsage).where(eq(modelUsage.profileId, profileId));
+      await database.db.delete(modelRoleBindings).where(eq(modelRoleBindings.characterId, characterId));
+      await database.db.delete(modelProfiles).where(eq(modelProfiles.id, profileId));
+      const knownIdentity = await database.db.select({ id: platformIdentities.id, personId: platformIdentities.personId }).from(platformIdentities).where(eq(platformIdentities.platformUserId, userId));
+      identityId ??= knownIdentity[0]?.id; personId ??= knownIdentity[0]?.personId;
+      await database.db.delete(emotionStates).where(eq(emotionStates.characterId, characterId));
+      if (personId) await clearRelationshipState(database, [personId]);
+      if (identityId) await database.db.delete(platformIdentities).where(eq(platformIdentities.id, identityId));
+      if (personId) await database.db.delete(people).where(eq(people.id, personId));
+      await database.db.delete(characters).where(eq(characters.id, characterId));
+    } catch (error) { cleanupError = error; }
+    try { await database.close(); } catch (error) { primaryError ??= error; }
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    if (priorPricing === undefined) delete process.env.COMPANION_MODEL_PRICING_JSON; else process.env.COMPANION_MODEL_PRICING_JSON = priorPricing;
+    if (priorKey === undefined) delete process.env.LOCAL_GRAPH_KEY; else process.env.LOCAL_GRAPH_KEY = priorKey;
+    if (cleanupError) throw new AggregateError([primaryError, cleanupError].filter(Boolean), 'graph local chat fixture cleanup failed');
+  }
+});
 
 test('persistent local chat saves replies and recovers completed replays without another generation', async () => {
   const database = createDatabase(requireCompatDatabaseUrl());
@@ -29,13 +130,26 @@ test('persistent local chat saves replies and recovers completed replays without
     const service = new LocalChatService(sessions, database, { complete: async ({ messages: sent }) => {
       calls += 1;
       assert.equal(sent.at(-1)?.role, 'user');
+      assert.match(sent[0]?.content ?? '', /角色核心人格/);
+      assert.match(sent[0]?.content ?? '', /南枝/);
       return { text: '  persisted reply  ', model: 'fixture', finishReason: 'stop', usage: null };
-    } });
+    } }, undefined, undefined, { persona: new PersonaContextService(database) });
     const suffix = uuid();
     const evidence = createVerifiedChannelEvidence('qq', `local-cli:channel:${suffix}`, `local-cli:user:${suffix}`, 'private');
     const event = { platform: 'qq' as const, eventId: `local-cli:event:${suffix}`, senderPlatformId: `local-cli:user:${suffix}`, conversationPlatformId: `local-cli:channel:${suffix}`, conversationKind: 'private' as const, text: 'hello', timestamp: new Date().toISOString(), participantPlatformIds: [], participantsComplete: false };
     const first = await service.handle(characterId, event, evidence);
     conversationIds.push(first.conversationId); turnIds.push(first.turnId);
+    const [acceptedSource] = await database.db.select({ metadata: messages.metadata }).from(messages).where(eq(messages.id, first.userMessageId));
+    const authenticatedChannel = (acceptedSource?.metadata as { authenticatedChannel?: Record<string, unknown> }).authenticatedChannel;
+    assert.deepEqual(authenticatedChannel, {
+      version: 1, platform: 'qq', platformUserId: event.senderPlatformId,
+      channelId: event.conversationPlatformId, conversationKind: 'private',
+      platformIdentityId: (await database.db.select({ id: platformIdentities.id }).from(platformIdentities).where(eq(platformIdentities.platformUserId, event.senderPlatformId)))[0]?.id,
+    });
+    const reconstructed = await resolvePersistedTurnActor(database, identity, first.turnId);
+    assert.equal(isTrustedActorContext(reconstructed), true);
+    assert.equal(reconstructed.platformIdentityId, authenticatedChannel?.platformIdentityId);
+    assert.equal(reconstructed.conversationId, first.conversationId);
     const second = await new LocalChatService(sessions, database, { complete: async () => { calls += 1; throw new Error('must not replay'); } }).handle(characterId, event, evidence);
     const identityRows = await database.db.select({ personId: platformIdentities.personId, identityId: platformIdentities.id }).from(platformIdentities).where(eq(platformIdentities.platformUserId, event.senderPlatformId));
     personIds.push(...identityRows.map((row) => row.personId)); identityIds.push(...identityRows.map((row) => row.identityId));
@@ -57,11 +171,13 @@ test('persistent local chat saves replies and recovers completed replays without
       if (turnIds.length) await database.db.delete(deliveryOutbox).where(inArray(deliveryOutbox.turnId, turnIds));
       if (conversationIds.length) {
         await database.db.delete(turns).where(inArray(turns.id, turnIds));
+        await clearRelationshipEvents(database, conversationIds);
         await database.db.delete(messages).where(inArray(messages.conversationId, conversationIds));
         await database.db.delete(conversationMembers).where(inArray(conversationMembers.conversationId, conversationIds));
         await database.db.delete(conversations).where(inArray(conversations.id, conversationIds));
       }
       if (identityIds.length) await database.db.delete(platformIdentities).where(inArray(platformIdentities.id, identityIds));
+      await clearRelationshipState(database, personIds);
       if (personIds.length) await database.db.delete(people).where(inArray(people.id, personIds));
       await database.db.delete(characters).where(eq(characters.id, characterId));
     } catch (error) { cleanupError = error; }
@@ -111,11 +227,13 @@ test('a busy concurrent request is rejected before acceptance and cannot enter a
         await database.db.delete(turns).where(eq(turns.id, turnId));
       }
       if (conversationId) {
+        await clearRelationshipEvents(database, [conversationId]);
         await database.db.delete(messages).where(eq(messages.conversationId, conversationId));
         await database.db.delete(conversationMembers).where(eq(conversationMembers.conversationId, conversationId));
         await database.db.delete(conversations).where(eq(conversations.id, conversationId));
       }
       if (identityId) await database.db.delete(platformIdentities).where(eq(platformIdentities.id, identityId));
+      if (personId) await clearRelationshipState(database, [personId]);
       if (personId) await database.db.delete(people).where(eq(people.id, personId));
       await database.db.delete(characters).where(eq(characters.id, characterId));
     } catch (error) { cleanupError = error; }
@@ -174,11 +292,13 @@ test('local profiles isolate history, reject forged evidence before generation, 
         await database.db.delete(turns).where(inArray(turns.id, allTurnIds));
       }
       if (allConversationIds.length) {
+        await clearRelationshipEvents(database, allConversationIds);
         await database.db.delete(messages).where(inArray(messages.conversationId, allConversationIds));
         await database.db.delete(conversationMembers).where(inArray(conversationMembers.conversationId, allConversationIds));
         await database.db.delete(conversations).where(inArray(conversations.id, allConversationIds));
       }
       if (identityIds.length) await database.db.delete(platformIdentities).where(inArray(platformIdentities.id, identityIds));
+      await clearRelationshipState(database, peopleIds);
       if (peopleIds.length) await database.db.delete(people).where(inArray(people.id, peopleIds));
       await database.db.delete(characters).where(eq(characters.id, characterId));
     } catch (error) { cleanupError = error; }
@@ -258,11 +378,13 @@ test('history bounds to 200 messages and orders equal-time turns deterministical
         await database.db.delete(turns).where(inArray(turns.id, turnIds));
       }
       if (conversationIds.length) {
+        await clearRelationshipEvents(database, conversationIds);
         await database.db.delete(messages).where(inArray(messages.conversationId, conversationIds));
         await database.db.delete(conversationMembers).where(inArray(conversationMembers.conversationId, conversationIds));
         await database.db.delete(conversations).where(inArray(conversations.id, conversationIds));
       }
       if (identityId) await database.db.delete(platformIdentities).where(eq(platformIdentities.id, identityId));
+      if (personId) await clearRelationshipState(database, [personId]);
       if (personId) await database.db.delete(people).where(eq(people.id, personId));
       await database.db.delete(characters).where(eq(characters.id, characterId));
     } catch (error) { cleanupError = error; }
@@ -338,11 +460,13 @@ test('received and expired-processing duplicate events stop before claim or a se
         await database.db.delete(turns).where(inArray(turns.id, turnIds));
       }
       if (conversationIds.length) {
+        await clearRelationshipEvents(database, conversationIds);
         await database.db.delete(messages).where(inArray(messages.conversationId, conversationIds));
         await database.db.delete(conversationMembers).where(inArray(conversationMembers.conversationId, conversationIds));
         await database.db.delete(conversations).where(inArray(conversations.id, conversationIds));
       }
       if (identityId) await database.db.delete(platformIdentities).where(eq(platformIdentities.id, identityId));
+      if (personId) await clearRelationshipState(database, [personId]);
       if (personId) await database.db.delete(people).where(eq(people.id, personId));
       await database.db.delete(characters).where(eq(characters.id, characterId));
     } catch (error) { cleanupError = error; }

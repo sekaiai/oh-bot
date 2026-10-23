@@ -656,7 +656,7 @@ export class AdminController {
         // Reconcile locks delivery → turn → business outbox → job log. Match
         // that order here to avoid retry/reconcile deadlocks for receipt_unknown.
         [delivery] = await tx.select().from(deliveryOutbox).where(eq(deliveryOutbox.id, payload.data.deliveryId)).for("update").limit(1);
-        [turn] = delivery ? await tx.select().from(turns).where(eq(turns.id, delivery.turnId)).for("update").limit(1) : [];
+        [turn] = delivery?.turnId ? await tx.select().from(turns).where(eq(turns.id, delivery.turnId)).for("update").limit(1) : [];
         [outbox] = await tx.select().from(businessOutbox).where(eq(businessOutbox.operationKey, logIdentity.operationKey)).for("update").limit(1);
         [log] = await tx.select().from(jobLogs).where(eq(jobLogs.id, id)).for("update").limit(1);
       } else {

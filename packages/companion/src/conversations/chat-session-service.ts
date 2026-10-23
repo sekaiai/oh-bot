@@ -1,4 +1,4 @@
-import { desc, and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { desc, and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../database/database.js';
 import { conversations, messages, turns } from '../database/schema/index.js';
@@ -97,6 +97,30 @@ export class LocalChatSessionService {
     return { session, accepted };
   }
 
+  /** Rebuild current server-authorized context from verified channel evidence. */
+  async resolveActorContext(
+    characterId: string,
+    evidence: VerifiedChannelEvidence,
+    conversationId: string,
+  ) {
+    const subject = this.requireSubject(evidence);
+    try {
+      const actor = await this.identityService.resolveActorContext({
+        platform: subject.platform,
+        platformUserId: subject.platformUserId,
+        characterId,
+        conversationId,
+      }, evidence);
+      if (actor.conversationKind !== 'private' || actor.characterId !== characterId || actor.conversationId !== conversationId) {
+        throw new CompanionError('session_unauthorized');
+      }
+      return actor;
+    } catch (error) {
+      if (error instanceof CompanionError) throw error;
+      throw new CompanionError('session_unauthorized');
+    }
+  }
+
   async readHistory(
     characterId: string,
     evidence: VerifiedChannelEvidence,
@@ -148,6 +172,7 @@ export class LocalChatSessionService {
     )).where(and(
       eq(messages.conversationId, session.conversationId),
       isNull(messages.deletedAt),
+      isNotNull(messages.text),
       or(
         isNull(messages.personId),
         inArray(messages.personId, [...session.linkedPersonIds]),
