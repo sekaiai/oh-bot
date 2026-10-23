@@ -1,8 +1,8 @@
 diff --git a/dist/oss/index.d.mts b/dist/oss/index.d.mts
-index 84b7b170435ecafa4a73972946072b45cd0abb10..cd5430af5c34fd2cfdd00fe98fab3a20d154d4ea 100644
+index 84b7b170435ecafa4a73972946072b45cd0abb10..d328739a56eebd96978dc135c832ab1ccb95ec8d 100644
 --- a/dist/oss/index.d.mts
 +++ b/dist/oss/index.d.mts
-@@ -724,6 +724,8 @@ declare class Memory {
+@@ -724,6 +724,10 @@ declare class Memory {
          message: string;
      }>;
      history(memoryId: string): Promise<any[]>;
@@ -13,7 +13,7 @@ index 84b7b170435ecafa4a73972946072b45cd0abb10..cd5430af5c34fd2cfdd00fe98fab3a20
      reset(): Promise<void>;
      getAll(config: GetAllMemoryOptions): Promise<SearchResult>;
      private createMemory;
-@@ -2585,6 +2587,7 @@ declare class CrossEncoderReranker implements Reranker {
+@@ -2585,6 +2589,7 @@ declare class CrossEncoderReranker implements Reranker {
  interface HistoryManager {
      addHistory(memoryId: string, previousValue: string | null, newValue: string | null, action: string, createdAt?: string, updatedAt?: string, isDeleted?: number): Promise<void>;
      getHistory(memoryId: string): Promise<any[]>;
@@ -22,10 +22,10 @@ index 84b7b170435ecafa4a73972946072b45cd0abb10..cd5430af5c34fd2cfdd00fe98fab3a20
      close(): void;
      saveMessages?(messages: Array<{
 diff --git a/dist/oss/index.d.ts b/dist/oss/index.d.ts
-index 84b7b170435ecafa4a73972946072b45cd0abb10..cd5430af5c34fd2cfdd00fe98fab3a20d154d4ea 100644
+index 84b7b170435ecafa4a73972946072b45cd0abb10..d328739a56eebd96978dc135c832ab1ccb95ec8d 100644
 --- a/dist/oss/index.d.ts
 +++ b/dist/oss/index.d.ts
-@@ -724,6 +724,8 @@ declare class Memory {
+@@ -724,6 +724,10 @@ declare class Memory {
          message: string;
      }>;
      history(memoryId: string): Promise<any[]>;
@@ -36,7 +36,7 @@ index 84b7b170435ecafa4a73972946072b45cd0abb10..cd5430af5c34fd2cfdd00fe98fab3a20
      reset(): Promise<void>;
      getAll(config: GetAllMemoryOptions): Promise<SearchResult>;
      private createMemory;
-@@ -2585,6 +2587,7 @@ declare class CrossEncoderReranker implements Reranker {
+@@ -2585,6 +2589,7 @@ declare class CrossEncoderReranker implements Reranker {
  interface HistoryManager {
      addHistory(memoryId: string, previousValue: string | null, newValue: string | null, action: string, createdAt?: string, updatedAt?: string, isDeleted?: number): Promise<void>;
      getHistory(memoryId: string): Promise<any[]>;
@@ -45,7 +45,7 @@ index 84b7b170435ecafa4a73972946072b45cd0abb10..cd5430af5c34fd2cfdd00fe98fab3a20
      close(): void;
      saveMessages?(messages: Array<{
 diff --git a/dist/oss/index.js b/dist/oss/index.js
-index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..1c57368fc79c0cd8cf032434d921707b4eebf15c 100644
+index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..af68edc273ed4d172b5dd62527388a5b139c0e5c 100644
 --- a/dist/oss/index.js
 +++ b/dist/oss/index.js
 @@ -4993,6 +4993,10 @@ var SQLiteManager = class {
@@ -59,7 +59,7 @@ index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..1c57368fc79c0cd8cf032434d921707b
    async saveMessages(messages, sessionScope) {
      if (!messages.length) return;
      const insertMsg = this.db.prepare(
-@@ -18325,6 +18329,11 @@ var Memory = class _Memory {
+@@ -18325,6 +18329,22 @@ var Memory = class _Memory {
      await this._displayFirstRunNotice("history");
      return result;
    }
@@ -83,7 +83,7 @@ index 38b7d1a33e18b97b9d810087a99cab78c4a2c71f..1c57368fc79c0cd8cf032434d921707b
      await this._ensureInitialized();
      await this._captureEvent("reset");
 diff --git a/dist/oss/index.mjs b/dist/oss/index.mjs
-index a226d3a001d79403261643fb3135dfbc6ad9ee96..d7637348e7d972ad2e0c9aec0cbf0bc0f187f6ea 100644
+index a226d3a001d79403261643fb3135dfbc6ad9ee96..06d60313d929f7d3c12788b51d8db8f2df76bf55 100644
 --- a/dist/oss/index.mjs
 +++ b/dist/oss/index.mjs
 @@ -4899,6 +4899,10 @@ var SQLiteManager = class {
@@ -97,7 +97,7 @@ index a226d3a001d79403261643fb3135dfbc6ad9ee96..d7637348e7d972ad2e0c9aec0cbf0bc0
    async saveMessages(messages, sessionScope) {
      if (!messages.length) return;
      const insertMsg = this.db.prepare(
-@@ -18231,6 +18235,11 @@ var Memory = class _Memory {
+@@ -18231,6 +18235,22 @@ var Memory = class _Memory {
      await this._displayFirstRunNotice("history");
      return result;
    }
@@ -105,6 +105,17 @@ index a226d3a001d79403261643fb3135dfbc6ad9ee96..d7637348e7d972ad2e0c9aec0cbf0bc0
 +    await this._ensureInitialized();
 +    if (typeof memoryId !== "string" || memoryId.length === 0) throw new Error("memoryId is required");
 +    return this.db.deleteHistory(memoryId);
++  }
++  async close() {
++    const outcomes = await Promise.allSettled([
++      Promise.resolve().then(() => this.db.close()),
++      Promise.resolve().then(async () => {
++        const close = this.vectorStore && this.vectorStore.close;
++        if (typeof close === "function") await close.call(this.vectorStore);
++      })
++    ]);
++    const errors = outcomes.filter((outcome) => outcome.status === "rejected").map((outcome) => outcome.reason);
++    if (errors.length) throw new AggregateError(errors, "Mem0 store close failed");
 +  }
    async reset() {
      await this._ensureInitialized();
