@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { eq, inArray } from 'drizzle-orm';
-import { createDatabase } from '../src/database/database.js';
+import { createDatabase, type Database } from '../src/database/database.js';
 import { migrateDatabase } from '../src/database/migrate.js';
 import { businessOutbox, characters, conversationMembers, conversations, deliveryOutbox, messages, people, platformIdentities, turns } from '../src/database/schema/index.js';
 import { IdentityService } from '../src/identity/identity-service.js';
@@ -9,6 +9,7 @@ import { createVerifiedChannelEvidence } from '../src/identity/trust.js';
 import { LocalChatSessionService } from '../src/conversations/chat-session-service.js';
 import { LocalChatService } from '../src/conversations/local-chat-service.js';
 import { ModelGatewayError } from '../src/models/chat-gateway.js';
+import { TurnService } from '../src/transactions/turn-service.js';
 import { uuid, requireCompatDatabaseUrl } from './helpers.js';
 
 test('persistent local chat saves replies and recovers completed replays without another generation', async () => {
@@ -268,4 +269,113 @@ test('history bounds to 200 messages and orders equal-time turns deterministical
     try { await database.close(); } catch (error) { primaryError ??= error; }
     if (cleanupError) throw new AggregateError([primaryError, cleanupError].filter(Boolean), 'bounded history integration cleanup failed');
   }
+});
+
+test('received and expired-processing duplicate events stop before claim or a second generation', async () => {
+  const database = createDatabase(requireCompatDatabaseUrl());
+  const characterId = uuid(); const suffix = uuid();
+  const userId = `local-cli:user:${suffix}`; const channelId = `local-cli:channel:${suffix}`;
+  const evidence = createVerifiedChannelEvidence('qq', channelId, userId, 'private');
+  let now = new Date('2026-10-23T08:00:00.000Z');
+  let calls = 0; let conversationId: string | undefined; let interruptedTurnId: string | undefined; let receivedTurnId: string | undefined; let primaryError: unknown;
+  let identityId: string | undefined; let personId: string | undefined;
+  try {
+    await migrateDatabase(database);
+    await database.db.insert(characters).values({ id: characterId, name: `local-chat-${suffix}` });
+    const identity = new IdentityService(database); const sessions = new LocalChatSessionService(database, identity);
+    const turnService = new TurnService(database, { now: () => new Date(now) });
+    const service = new LocalChatService(sessions, database, { complete: async ({ messages: sent }) => {
+      calls += 1;
+      if (sent.at(-1)?.content === 'interrupted original generation') now = new Date(now.getTime() + 2 * 60 * 60_000);
+      return { text: `saved-${sent.at(-1)?.content}`, model: 'fixture', finishReason: null, usage: null };
+    } }, turnService);
+    const makeEvent = (eventId: string, text: string) => ({ platform: 'qq' as const, eventId, senderPlatformId: userId, conversationPlatformId: channelId, conversationKind: 'private' as const, text, timestamp: new Date().toISOString(), participantPlatformIds: [], participantsComplete: false });
+
+    const receivedEvent = makeEvent(`received-${suffix}`, 'received but never claimed');
+    const received = await sessions.acceptMessage(characterId, receivedEvent, evidence);
+    conversationId = received.session.conversationId;
+    receivedTurnId = received.accepted.turnId;
+    await assert.rejects(service.handle(characterId, receivedEvent, evidence), { code: 'local_chat_incomplete' });
+    assert.equal(calls, 0, 'received duplicate must not claim or generate');
+
+    const interruptedEvent = makeEvent(`interrupted-${suffix}`, 'interrupted original generation');
+    const interrupted = await service.handle(characterId, interruptedEvent, evidence).catch((error: unknown) => error);
+    assert.equal((interrupted as { code?: string }).code, 'lease_lost', 'original attempt expires during generation and cannot persist');
+    const [interruptedMessage] = await database.db.select({ id: messages.id }).from(messages).where(eq(messages.platformEventId, interruptedEvent.eventId));
+    const [interruptedTurn] = await database.db.select({ id: turns.id, status: turns.status, version: turns.version, leaseExpiresAt: turns.leaseExpiresAt }).from(turns).where(eq(turns.inboundMessageId, interruptedMessage!.id));
+    interruptedTurnId = interruptedTurn!.id;
+    assert.equal(interruptedTurn!.status, 'processing');
+    assert.ok(interruptedTurn!.leaseExpiresAt && interruptedTurn!.leaseExpiresAt <= now);
+    const newer = await service.handle(characterId, makeEvent(`newer-${suffix}`, 'newer completed turn'), evidence);
+    assert.equal(newer.text, 'saved-newer completed turn');
+    assert.equal(calls, 2);
+
+    await assert.rejects(service.handle(characterId, interruptedEvent, evidence), { code: 'local_chat_incomplete' });
+    assert.equal(calls, 2, 'expired processing duplicate must not call the gateway again');
+    const [stillReceived] = await database.db.select({ status: turns.status }).from(turns).where(eq(turns.id, receivedTurnId!));
+    assert.equal(stillReceived!.status, 'received');
+    const [stillExpired] = await database.db.select({ status: turns.status, version: turns.version }).from(turns).where(eq(turns.id, interruptedTurnId!));
+    assert.equal(stillExpired!.status, interruptedTurn!.status);
+    assert.equal(stillExpired!.version, interruptedTurn!.version, 'replay must not reclaim an expired turn');
+    const rows = await database.db.select({ role: messages.role, text: messages.text }).from(messages).where(eq(messages.conversationId, conversationId));
+    assert.equal(rows.filter((row) => row.role === 'assistant').length, 1);
+    const turnRows = await database.db.select({ id: turns.id }).from(turns).where(eq(turns.conversationId, conversationId));
+    assert.equal((await database.db.select().from(deliveryOutbox).where(inArray(deliveryOutbox.turnId, turnRows.map(({ id }) => id)))).length, 1);
+    assert.equal((await database.db.select().from(deliveryOutbox).where(eq(deliveryOutbox.turnId, newer.turnId))).length, 1);
+    const identities = await database.db.select({ id: platformIdentities.id, personId: platformIdentities.personId }).from(platformIdentities).where(eq(platformIdentities.platformUserId, userId));
+    identityId = identities[0]?.id; personId = identities[0]?.personId;
+  } catch (error) { primaryError = error; throw error; }
+  finally {
+    let cleanupError: unknown;
+    try {
+      const found = await database.db.select({ id: conversations.id }).from(conversations).where(eq(conversations.characterId, characterId));
+      const conversationIds = found.map(({ id }) => id);
+      const allTurns = conversationIds.length ? await database.db.select({ id: turns.id }).from(turns).where(inArray(turns.conversationId, conversationIds)) : [];
+      const turnIds = allTurns.map(({ id }) => id);
+      if (turnIds.length) {
+        await database.db.delete(businessOutbox).where(inArray(businessOutbox.operationKey, turnIds.flatMap((id) => [`turn:${id}:process`, `turn:${id}:deliver`])));
+        await database.db.delete(deliveryOutbox).where(inArray(deliveryOutbox.turnId, turnIds));
+        await database.db.delete(turns).where(inArray(turns.id, turnIds));
+      }
+      if (conversationIds.length) {
+        await database.db.delete(messages).where(inArray(messages.conversationId, conversationIds));
+        await database.db.delete(conversationMembers).where(inArray(conversationMembers.conversationId, conversationIds));
+        await database.db.delete(conversations).where(inArray(conversations.id, conversationIds));
+      }
+      if (identityId) await database.db.delete(platformIdentities).where(eq(platformIdentities.id, identityId));
+      if (personId) await database.db.delete(people).where(eq(people.id, personId));
+      await database.db.delete(characters).where(eq(characters.id, characterId));
+    } catch (error) { cleanupError = error; }
+    try { await database.close(); } catch (error) { primaryError ??= error; }
+    if (cleanupError) throw new AggregateError([primaryError, cleanupError].filter(Boolean), 'duplicate replay cleanup failed');
+  }
+});
+
+test('uncertain advisory-lock acquisition destroys the client and returns a sanitized code before acceptance', async () => {
+  let possibleLockOwnership = false; let releasedWithError: Error | undefined;
+  let acceptanceCalls = 0; let gatewayCalls = 0;
+  const client = {
+    query: async () => { possibleLockOwnership = true; throw new Error('secret driver detail and database URL'); },
+    release: (error?: Error) => { releasedWithError = error; },
+  };
+  const database = {
+    pool: { connect: async () => client },
+  } as unknown as Database;
+  const sessions = {
+    acceptMessage: async () => { acceptanceCalls += 1; throw new Error('must not accept'); },
+    readHistory: async () => null,
+  } as unknown as LocalChatSessionService;
+  const gateway = { complete: async () => { gatewayCalls += 1; throw new Error('must not call provider'); } };
+  const service = new LocalChatService(sessions, database, gateway);
+  const suffix = uuid();
+  const evidence = createVerifiedChannelEvidence('qq', `local-cli:channel:${suffix}`, `local-cli:user:${suffix}`, 'private');
+  const event = { platform: 'qq' as const, eventId: `uncertain-lock-${suffix}`, senderPlatformId: `local-cli:user:${suffix}`, conversationPlatformId: `local-cli:channel:${suffix}`, conversationKind: 'private' as const, text: 'hello', timestamp: new Date().toISOString(), participantPlatformIds: [], participantsComplete: false };
+  await assert.rejects(service.handle(uuid(), event, evidence), (error: unknown) => {
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === 'local_chat_lock_unavailable' &&
+      error instanceof Error && !error.message.includes('secret') && !error.message.includes('database URL');
+  });
+  assert.equal(possibleLockOwnership, true, 'fake query models timeout after server-side lock acquisition');
+  assert.ok(releasedWithError instanceof Error, 'uncertain lock owner must be destroyed, not returned to the pool');
+  assert.equal(acceptanceCalls, 0);
+  assert.equal(gatewayCalls, 0);
 });

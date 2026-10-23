@@ -47,9 +47,23 @@ export class LocalChatService {
     const client = await this.database.pool.connect();
     const key = lockKey(characterId, subject.platform, subject.channelId);
     let locked = false;
+    let released = false;
     try {
-      const result = await client.query<{ locked: boolean }>('select pg_try_advisory_lock(hashtextextended($1, 0)) as locked', [key]);
-      locked = result.rows[0]?.locked === true;
+      let result: { rows: Array<{ locked: boolean }> };
+      try {
+        result = await client.query<{ locked: boolean }>('select pg_try_advisory_lock(hashtextextended($1, 0)) as locked', [key]);
+      } catch {
+        client.release(new Error('local chat advisory lock acquisition was uncertain'));
+        released = true;
+        throw new CompanionError('local_chat_lock_unavailable');
+      }
+      const acquired = result.rows[0]?.locked;
+      if (typeof acquired !== 'boolean') {
+        client.release(new Error('local chat advisory lock result was uncertain'));
+        released = true;
+        throw new CompanionError('local_chat_lock_unavailable');
+      }
+      locked = acquired;
       if (!locked) throw new CompanionError('local_chat_busy');
 
       const accepted = await this.sessions.acceptMessage(characterId, event, evidence);
@@ -59,6 +73,7 @@ export class LocalChatService {
         return await this.recover(accepted.accepted.turnId, accepted.accepted.conversationId, accepted.accepted.messageId, true);
       }
       if (accepted.accepted.duplicate && turn?.status === 'failed') throw new CompanionError('local_chat_previous_failed');
+      if (accepted.accepted.duplicate) throw new CompanionError('local_chat_incomplete');
 
       const lease = await this.turnsService.claim(accepted.accepted.turnId, this.workerId, 3_600_000);
       if (!lease) throw new CompanionError('local_chat_busy');
@@ -93,16 +108,21 @@ export class LocalChatService {
         throw new CompanionError(code);
       }
     } finally {
-      if (locked) {
+      if (!released && locked) {
         try {
           const unlocked = await client.query<{ unlocked: boolean }>('select pg_advisory_unlock(hashtextextended($1, 0)) as unlocked', [key]);
           if (unlocked.rows[0]?.unlocked !== true) throw new Error('unlock failed');
           client.release();
+          released = true;
         } catch {
           client.release(new Error('local chat advisory lock release failed'));
+          released = true;
           throw new CompanionError('local_chat_lock_release_failed');
         }
-      } else client.release();
+      } else if (!released) {
+        client.release();
+        released = true;
+      }
     }
   }
 
