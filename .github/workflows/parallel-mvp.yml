@@ -127,6 +127,7 @@ jobs:
           REVIEW_API_BASE_URL: ${{ vars.REVIEW_API_BASE_URL || secrets.REVIEW_API_BASE_URL }}
           REVIEW_API_MODEL: ${{ vars.REVIEW_API_MODEL || secrets.REVIEW_API_MODEL }}
           REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
+          REVIEW_FALLBACK_TO_CODING: ${{ vars.REVIEW_FALLBACK_TO_CODING || 'true' }}
         run: node ../control/.github/codex/controller.mjs cycle
       - name: Publish reviewed branch or preserve repair checkpoint
         if: always() && steps.cycle.outcome != 'skipped' && steps.cycle.outcome != ''
