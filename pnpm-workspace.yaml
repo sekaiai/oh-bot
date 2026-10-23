@@ -4,3 +4,7 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  vue-demi: true
+
+patchedDependencies:
+  mem0ai@3.3.1: packages/companion/vendor/mem0ai@3.3.1.patch
