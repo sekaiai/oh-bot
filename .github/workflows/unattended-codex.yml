@@ -93,10 +93,10 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           CODING_API_KEY: ${{ secrets.CODING_API_KEY }}
-          CODING_API_BASE_URL: ${{ vars.CODING_API_BASE_URL }}
-          CODING_API_MODEL: ${{ vars.CODING_API_MODEL }}
-          REVIEW_API_BASE_URL: ${{ vars.REVIEW_API_BASE_URL }}
-          REVIEW_API_MODEL: ${{ vars.REVIEW_API_MODEL }}
+          CODING_API_BASE_URL: ${{ vars.CODING_API_BASE_URL || secrets.CODING_API_BASE_URL }}
+          CODING_API_MODEL: ${{ vars.CODING_API_MODEL || secrets.CODING_API_MODEL }}
+          REVIEW_API_BASE_URL: ${{ vars.REVIEW_API_BASE_URL || secrets.REVIEW_API_BASE_URL }}
+          REVIEW_API_MODEL: ${{ vars.REVIEW_API_MODEL || secrets.REVIEW_API_MODEL }}
           REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
         run: node ../control/.github/codex/api-config.mjs check
       - name: Prepare isolated runner
@@ -115,11 +115,11 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek/deepseek-chat' }}
-          CODING_API_BASE_URL: ${{ vars.CODING_API_BASE_URL }}
-          CODING_API_MODEL: ${{ vars.CODING_API_MODEL }}
+          CODING_API_BASE_URL: ${{ vars.CODING_API_BASE_URL || secrets.CODING_API_BASE_URL }}
+          CODING_API_MODEL: ${{ vars.CODING_API_MODEL || secrets.CODING_API_MODEL }}
           CODING_API_KEY: ${{ secrets.CODING_API_KEY }}
-          REVIEW_API_BASE_URL: ${{ vars.REVIEW_API_BASE_URL }}
-          REVIEW_API_MODEL: ${{ vars.REVIEW_API_MODEL }}
+          REVIEW_API_BASE_URL: ${{ vars.REVIEW_API_BASE_URL || secrets.REVIEW_API_BASE_URL }}
+          REVIEW_API_MODEL: ${{ vars.REVIEW_API_MODEL || secrets.REVIEW_API_MODEL }}
           REVIEW_API_KEY: ${{ secrets.REVIEW_API_KEY }}
         run: node ../control/.github/codex/controller.mjs cycle
       - name: Deliver verified work or save retry checkpoint
