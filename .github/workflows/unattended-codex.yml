@@ -1,4 +1,4 @@
-name: Unattended DeepSeek
+name: Unattended Companion MVP
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: oh-bot-unattended
+  group: oh-bot-unattended-mvp-v1
   cancel-in-progress: false
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
     needs: controller-tests
     if: github.ref == 'refs/heads/main' && vars.UNATTENDED_ENABLED != 'false'
     runs-on: ubuntu-24.04
-    timeout-minutes: 70
+    timeout-minutes: 38
     permissions:
       contents: write
       actions: write
@@ -107,10 +107,10 @@ jobs:
           npm install --global opencode-ai@1.19.3
           docker build --tag oh-bot-verifier --file ../control/.github/codex/verify.Dockerfile ../control/.github/codex
           psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
-      - name: Implement, verify, repair and independently review
+      - name: Implement one MVP slice, verify and independently review
         if: steps.prepare.outputs.active == 'true'
         id: cycle
-        timeout-minutes: 57
+        timeout-minutes: 26
         continue-on-error: true
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

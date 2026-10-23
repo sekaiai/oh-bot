@@ -41,10 +41,19 @@ export function retryBacklog(markdown,task) {
   return markdown.replace(task.line.replace('- [ ]','- [x]'),task.line);
 }
 
+const progressOrFeedback = path =>
+  path === 'docs/implementation/progress.md' ||
+  path === 'docs/implementation/unattended-retry-feedback.md';
+const companionMvp = path => path.startsWith('packages/companion/') || progressOrFeedback(path);
 const taskScopes = {
-  F4b: path => path.startsWith('packages/compatibility/')
-    || path === 'docs/implementation/progress.md'
-    || path === 'docs/implementation/unattended-retry-feedback.md',
+  // MVP slices cannot silently rewrite the legacy app or trusted automation.
+  M1a: companionMvp,
+  M1b: companionMvp,
+  M2a: companionMvp,
+  M2b: path => companionMvp(path) || path.startsWith('packages/compatibility/'),
+  M3a: companionMvp,
+  M3b: path => companionMvp(path) || path.startsWith('docs/implementation/'),
+  F4b: path => path.startsWith('packages/compatibility/') || progressOrFeedback(path),
 };
 
 export function taskPathAllowed(task, path) {
