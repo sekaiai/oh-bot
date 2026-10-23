@@ -100,3 +100,11 @@ F4b记忆来源、更正与遗忘账本已完成并通过独立复审PASS：管�
 - 目标测试（`source /workspace/oh-bot-setup/env.sh && pnpm --dir packages/companion exec tsx --test --test-concurrency=1 test/chat-endpoint.test.ts test/chat-gateway.test.ts test/chat-cli.test.ts test/chat-session.integration.test.ts test/local-profile.test.ts test/local-chat.integration.test.ts test/local-chat-cli.integration.test.ts`）最终 31/31 通过、0 skipped；M1b2 integration child/profile/service 子集另 10/10 通过。`pnpm --dir packages/companion typecheck`、`pnpm --dir packages/companion build` 通过。
 - `.github/codex/check.sh` 复跑通过，完整自动发现矩阵 78/78、0 skipped；Companion/compatibility 单测各 14/14，顺序 PG 集成 29/29，health 1/1，startup 4/4，根包 typecheck/build/admin build 通过，最终退出码 0。第一次矩阵运行中既有 lock-wait 测试暴露了预期拒绝在断言安装前短暂未处理；单测隔离重跑通过后，仅在测试 helper 上立即附加 rejection observer（仍保留原始 `assert.rejects`），再跑全矩阵通过。完整日志保存在 `/workspace/oh-bot-work/m1b2/full-check.log`。
 - M1b2 复选框保持未勾选，等待控制器审查与最终验收。
+
+## M1b1/M1b2 控制器最终验收（2026-10-23）
+
+- 按用户指定的 Sol 主控、Luna 实现完成本轮；实现提交 `0603311`，复审修复提交 `f229ca0`。Sol 复审发现的未完成事件重放和锁取得结果不明时的连接清理问题均已修复，定向复审无剩余阻塞项。
+- Sol 在最终代码上独立执行 `source /workspace/oh-bot-setup/env.sh && bash .github/codex/check.sh`，退出码 0：自动发现的 Companion 测试 81/81、隔离 PostgreSQL 集成 29/29、健康 1/1、启动 4/4；两个基础单测组各 14/14；后端/前端/Companion 构建和类型检查通过，所有测试均无失败或跳过。修复后的定向聊天回归另为 33/33。
+- 入口：显式设置业务聊天 `COMPANION_CHAT_*` 和 `COMPANION_DATABASE_URL`，手动迁移后执行 `pnpm exec tsx packages/companion/src/cli/chat.ts --persistent --session-file .local/companion-profile.json`。相同私有 profile 可在进程重启后恢复会话；不指定 `--persistent` 时保持原内存模式。
+- profile 仅代表当前 OS 账户的本地合成身份；CLI 不启动 QQ 连接或 sender，不将终端输出视为 QQ 送达。未调用真实模型/QQ；doctor 仍报告未设置可选管理密码和初始运行数据缺失。
+- M1b1/M1b2 任务清单已按代码、测试和复审证据勾选；下一项 M2a，尚未实现稳定人格及用户关系运行闭环。

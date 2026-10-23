@@ -1,5 +1,7 @@
 # 无人值守任务清单（MVP 优先）
 
+> 当前手动续开发采用 Sol 主控、Luna 实现；自动编码工作流保持暂停。M1b1/M1b2 已通过控制器最终验证及 Sol 复审：全量 81/81、隔离 PG 集成 29/29、健康 1/1、启动 4/4，均无失败或跳过。下一项为 M2a。下面保留原自动化路线，历史分支名称不代表当前已启用的工作流。
+
 2026-10-23 调整为**先交付能用的聊天机器人，再继续完整平台**。控制器仍按首个未完成任务执行，固定测试、独立审查通过后才勾选并快进提交到 `feat/companion-v3`。失败保存重试分支，不覆盖人工提交。
 
 M 系列每项必须交付可验证入口、对应测试与进度说明；不做占位接口、不假装外部 API/QQ 已接通。必须保留身份隔离、记忆 ACL、更正/遗忘和消息幂等。详见 `docs/implementation/mvp-delivery.md`。
@@ -12,8 +14,8 @@ M 系列每项必须交付可验证入口、对应测试与进度说明；不做
 - [x] M1a：在 packages/companion 增加最小真实聊天 ModelGateway 和仅限本地开发的终端聊天入口，显式配置业务聊天 API URL、Key、模型，支持 OpenAI-compatible Chat Completions；无凭据明确失败、不输出密钥、不使用自动编码密钥；添加 HTTP fixture 测试与本地运行说明，不能声称 live 已通过。
 
   M1a 实现不得修改任何既有 `package.json` scripts（即使只是新增本地聊天快捷命令），控制器会拒绝此类改动；终端入口可通过现有 `pnpm exec tsx <入口文件>` 直接运行，并在本地运行说明中写清命令。
-- [ ] M1b1：在 packages/companion 实现本地聊天会话/历史服务，入口使用可信 channel evidence 并复用 IdentityService 与 InboundService.accept 的事务；从已解析 person 和 conversation member 关系读取历史，不接受调用方传入 userId/personId 授权。用隔离 PG 覆盖两条 verified identity 的历史隔离、伪造 ActorContext/证据拒绝、重复 event 幂等；只做服务与测试，不接 CLI、不新增网络服务或 package.json scripts。
-- [ ] M1b2：把 M1a 本地终端聊天接入 M1b1 会话服务和 M1a ModelGateway；每轮从 PostgreSQL 恢复可信会话历史并在事务中持久化用户/assistant 消息，重启后继续对话；无任意 userId 历史读取。隔离 PG 端到端覆盖重启恢复、重复消息、越权拒绝与多轮网关请求。更新可复现运行说明；不新增网络服务或 package.json scripts。
+- [x] M1b1：在 packages/companion 实现本地聊天会话/历史服务，入口使用可信 channel evidence 并复用 IdentityService 与 InboundService.accept 的事务；从已解析 person 和 conversation member 关系读取历史，不接受调用方传入 userId/personId 授权。用隔离 PG 覆盖两条 verified identity 的历史隔离、伪造 ActorContext/证据拒绝、重复 event 幂等；只做服务与测试，不接 CLI、不新增网络服务或 package.json scripts。
+- [x] M1b2：把 M1a 本地终端聊天接入 M1b1 会话服务和 M1a ModelGateway；每轮从 PostgreSQL 恢复可信会话历史并在事务中持久化用户/assistant 消息，重启后继续对话；无任意 userId 历史读取。隔离 PG 端到端覆盖重启恢复、重复消息、越权拒绝与多轮网关请求。更新可复现运行说明；不新增网络服务或 package.json scripts。
 
   M1b 实现提示：本阶段只提供本地终端入口。先复用 `InboundService.accept(characterId, event, evidence)`、`IdentityService`、`TurnService` 和 `createVerifiedChannelEvidence`；按 M1b1 → M1b2 顺序实现，历史授权从可信证据解析 person，并核对 private conversation membership。M1b2 才将服务接入 CLI 和 Gateway。
 - [ ] M2a：在现有身份/关系表基础上实现稳定版本人格和按用户独立持久化关系状态，主伴侣身份仅可由可信绑定/管理操作指定，普通用户不可更改；提供本地聊天中的人格上下文与重启/多用户隔离测试。
