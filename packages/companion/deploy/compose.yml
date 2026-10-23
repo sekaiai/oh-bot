@@ -1,0 +1,172 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-companion}
+      POSTGRES_USER: ${POSTGRES_USER:-companion}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  companion-init:
+    build:
+      context: ../../..
+      dockerfile: packages/companion/deploy/Dockerfile
+      target: runtime
+      secrets: [proxy_ca]
+    command: ["sh", "-ec", "node packages/companion/dist/cli/operations.js journal-init && node packages/companion/dist/database/migrate-cli.js && COMPANION_WORKER_QUEUE_SETUP=1 node packages/companion/dist/worker.js && COMPANION_GRAPH_SETUP=1 node packages/companion/dist/worker.js && if [ -n \"$${COMPANION_MEMORY_CHAT_API_URL:-}\" ]; then COMPANION_MEMORY_HISTORY_SETUP=1 node packages/companion/dist/worker.js; fi"]
+    environment:
+      COMPANION_DATABASE_URL: ${COMPANION_DATABASE_URL:?set COMPANION_DATABASE_URL}
+      COMPANION_WORKER_QUEUE_PREFIX: ${COMPANION_WORKER_QUEUE_PREFIX:-companion}
+      COMPANION_MEMORY_CHAT_API_URL: ${COMPANION_MEMORY_CHAT_API_URL:-}
+      COMPANION_MEMORY_CHAT_API_KEY: ${COMPANION_MEMORY_CHAT_API_KEY:-}
+      COMPANION_MEMORY_CHAT_MODEL: ${COMPANION_MEMORY_CHAT_MODEL:-}
+      COMPANION_MEMORY_EMBEDDING_API_URL: ${COMPANION_MEMORY_EMBEDDING_API_URL:-}
+      COMPANION_MEMORY_EMBEDDING_API_KEY: ${COMPANION_MEMORY_EMBEDDING_API_KEY:-}
+      COMPANION_MEMORY_EMBEDDING_MODEL: ${COMPANION_MEMORY_EMBEDDING_MODEL:-}
+      COMPANION_MEMORY_EMBEDDING_DIMENSIONS: ${COMPANION_MEMORY_EMBEDDING_DIMENSIONS:-}
+      COMPANION_MEMORY_HISTORY_PATH: /mem0/history.sqlite
+      COMPANION_MEMORY_COLLECTION: ${COMPANION_MEMORY_COLLECTION:-companion_memories}
+      MEMORY_DELETION_JOURNAL_PATH: /state/deletion-journal.jsonl
+      NODE_EXTRA_CA_CERTS: /run/secrets/proxy_ca
+      NODE_ENV: production
+    volumes:
+      - companion-state:/state
+      - companion-mem0:/mem0
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+    secrets: [proxy_ca]
+
+  companion-api:
+    build:
+      context: ../../..
+      dockerfile: packages/companion/deploy/Dockerfile
+      target: runtime
+      secrets: [proxy_ca]
+    command: ["node", "packages/companion/dist/main.js"]
+    environment:
+      COMPANION_DATABASE_URL: ${COMPANION_DATABASE_URL:?set COMPANION_DATABASE_URL}
+      COMPANION_ADMIN_TOKEN: ${COMPANION_ADMIN_TOKEN:?set COMPANION_ADMIN_TOKEN}
+      COMPANION_ADMIN_HOST: 0.0.0.0
+      COMPANION_ADMIN_PORT: "3010"
+      COMPANION_PROACTIVE_ENABLED: "false"
+      COMPANION_ONEBOT_ENABLED: "0"
+      COMPANION_BACKUP_ROOT: /backups
+      COMPANION_BACKUP_ASSET_ROOTS: /mem0,/media,/config
+      COMPANION_RESTORE_ROOT: /restore
+      RESTORE_DATABASE_URL: ${RESTORE_DATABASE_URL:-}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-}
+      MEMORY_DELETION_JOURNAL_PATH: /state/deletion-journal.jsonl
+      NODE_EXTRA_CA_CERTS: /run/secrets/proxy_ca
+      NODE_ENV: production
+    volumes:
+      - companion-state:/state
+      - companion-mem0:/mem0:ro
+      - companion-media:/media:ro
+      - companion-config:/config:ro
+      - companion-backups:/backups
+      - companion-restore:/restore
+    depends_on:
+      companion-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    secrets: [proxy_ca]
+
+  companion-worker:
+    build:
+      context: ../../..
+      dockerfile: packages/companion/deploy/Dockerfile
+      target: runtime
+      secrets: [proxy_ca]
+    command: ["node", "packages/companion/dist/worker.js"]
+    environment:
+      COMPANION_DATABASE_URL: ${COMPANION_DATABASE_URL:?set COMPANION_DATABASE_URL}
+      COMPANION_PROACTIVE_ENABLED: "false"
+      COMPANION_ONEBOT_ENABLED: "0"
+      COMPANION_WORKER_QUEUE_PREFIX: ${COMPANION_WORKER_QUEUE_PREFIX:-companion}
+      MEMORY_DELETION_JOURNAL_PATH: /state/deletion-journal.jsonl
+      COMPANION_MEMORY_CHAT_API_URL: ${COMPANION_MEMORY_CHAT_API_URL:-}
+      COMPANION_MEMORY_CHAT_API_KEY: ${COMPANION_MEMORY_CHAT_API_KEY:-}
+      COMPANION_MEMORY_CHAT_MODEL: ${COMPANION_MEMORY_CHAT_MODEL:-}
+      COMPANION_MEMORY_EMBEDDING_API_URL: ${COMPANION_MEMORY_EMBEDDING_API_URL:-}
+      COMPANION_MEMORY_EMBEDDING_API_KEY: ${COMPANION_MEMORY_EMBEDDING_API_KEY:-}
+      COMPANION_MEMORY_EMBEDDING_MODEL: ${COMPANION_MEMORY_EMBEDDING_MODEL:-}
+      COMPANION_MEMORY_EMBEDDING_DIMENSIONS: ${COMPANION_MEMORY_EMBEDDING_DIMENSIONS:-}
+      COMPANION_MEMORY_HISTORY_PATH: /mem0/history.sqlite
+      COMPANION_MEMORY_COLLECTION: ${COMPANION_MEMORY_COLLECTION:-companion_memories}
+      NODE_EXTRA_CA_CERTS: /run/secrets/proxy_ca
+      NODE_ENV: production
+    volumes:
+      - companion-state:/state
+      - companion-mem0:/mem0
+      - companion-media:/media
+      - companion-config:/config
+    depends_on:
+      companion-init: { condition: service_completed_successfully }
+      companion-api: { condition: service_healthy }
+    secrets: [proxy_ca]
+
+  companion-ops:
+    profiles: [operations]
+    build:
+      context: ../../..
+      dockerfile: packages/companion/deploy/Dockerfile
+      target: runtime
+      secrets: [proxy_ca]
+    command: ["node", "packages/companion/dist/cli/operations.js", "schedule"]
+    environment:
+      COMPANION_DATABASE_URL: ${COMPANION_DATABASE_URL:?set COMPANION_DATABASE_URL}
+      COMPANION_BACKUP_ROOT: /backups
+      COMPANION_BACKUP_ASSET_ROOTS: /mem0,/media,/config
+      COMPANION_RESTORE_ROOT: /restore
+      COMPANION_BACKUP_SCHEDULE_ENABLED: ${COMPANION_BACKUP_SCHEDULE_ENABLED:-false}
+      COMPANION_BACKUP_OWNER: ${COMPANION_BACKUP_OWNER:-companion-operations-v1}
+      MEMORY_DELETION_JOURNAL_PATH: /state/deletion-journal.jsonl
+      COMPANION_MONTHLY_RESTORE_DATABASE_URL: ${COMPANION_MONTHLY_RESTORE_DATABASE_URL:-}
+      COMPANION_MEMORY_HISTORY_PATH: ${COMPANION_MEMORY_HISTORY_PATH:-}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-}
+      NODE_EXTRA_CA_CERTS: /run/secrets/proxy_ca
+      NODE_ENV: production
+    volumes:
+      - companion-state:/state
+      - companion-mem0:/mem0:ro
+      - companion-media:/media:ro
+      - companion-config:/config:ro
+      - companion-backups:/backups
+      - companion-restore:/restore
+    depends_on:
+      companion-init: { condition: service_completed_successfully }
+    secrets: [proxy_ca]
+
+  companion-admin:
+    build:
+      context: ../../..
+      dockerfile: packages/companion/deploy/Dockerfile
+      target: admin
+      secrets: [proxy_ca]
+    ports: ["${COMPANION_ADMIN_HTTP_PORT:-8080}:80"]
+    depends_on:
+      companion-api: { condition: service_healthy }
+
+volumes:
+  postgres-data:
+  companion-state:
+  companion-mem0:
+  companion-media:
+  companion-config:
+  companion-backups:
+  companion-restore:
+secrets:
+  proxy_ca:
+    file: ${COMPANION_BUILD_PROXY_CA_FILE:-/etc/ssl/certs/ca-certificates.crt}

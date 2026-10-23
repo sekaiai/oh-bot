@@ -1,0 +1,4 @@
+# Install only after setting COMPANION_BACKUP_ROOT, COMPANION_DATABASE_URL,
+# MEMORY_DELETION_JOURNAL_PATH, COMPANION_RESTORE_ROOT, and a pre-created
+# COMPANION_MONTHLY_RESTORE_DATABASE_URL ending in _compat.
+0 */6 * * * cd /srv/oh-bot && docker compose -f packages/companion/deploy/compose.yml --profile operations run --rm -e COMPANION_BACKUP_SCHEDULE_ENABLED=true companion-ops
