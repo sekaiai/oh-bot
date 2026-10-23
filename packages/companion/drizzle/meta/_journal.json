@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792634153746,
+      "tag": "0000_hesitant_speedball",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792634611113,
+      "tag": "0001_memory_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792634700320,
+      "tag": "0002_memory_operations_refinement",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792634942723,
+      "tag": "0003_memory_revision_positive",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792638541050,
+      "tag": "0004_even_fixer",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792639283211,
+      "tag": "0005_opposite_old_lace",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792656554928,
+      "tag": "0006_special_rogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792660000000,
+      "tag": "0007_memory_validation_quote",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,9 +1,0 @@
-{
-  "admins": [],
-  "whitelistGroups": [],
-  "blacklistUsers": [],
-  "requireAtInGroup": true,
-  "aiEnabled": true,
-  "commandPrefix": "/",
-  "cooldownSeconds": 3
-}

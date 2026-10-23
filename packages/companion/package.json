@@ -1,0 +1,40 @@
+{
+  "name": "@oh-bot/companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsup --config tsup.config.ts",
+    "test": "tsx --test test/contracts.test.ts test/schema.test.ts test/disclosure-policy.test.ts test/admin-api.test.ts test/worker-lifecycle.test.ts",
+    "test:integration": "tsx --test --test-concurrency=1 test/database.test.ts test/identity.test.ts test/memory-reads.integration.test.ts test/memory-lifecycle.integration.test.ts test/transactions.test.ts test/admin-api.integration.test.ts test/worker.integration.test.ts test/job-attempt.integration.test.ts test/worker-recovery.integration.test.ts",
+    "db:migrate": "tsx src/database/migrate-cli.ts",
+    "start:admin": "node dist/main.js",
+    "start:worker": "node dist/worker.js",
+    "test:startup": "tsx --test test/admin-main.test.ts test/worker-main.test.ts",
+    "test:health": "tsx --test test/admin-health.integration.test.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.2.0",
+    "@nestjs/core": "12.2.0",
+    "@nestjs/platform-fastify": "12.2.0",
+    "drizzle-orm": "0.45.4",
+    "fastify": "5.12.7",
+    "pg": "8.23.1",
+    "pg-boss": "12.38.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

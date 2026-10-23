@@ -6,24 +6,39 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev:bot": "tsx watch src/index.ts",
+    "dev:admin": "vite --config admin/vite.config.ts",
+    "build": "tsup",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck && pnpm build && pnpm admin:build",
+    "codex:doctor": "tsx scripts/codex-doctor.ts",
+    "codex:check": "pnpm check && pnpm codex:doctor",
+    "admin:dev": "vite --config admin/vite.config.ts",
+    "admin:build": "vite build --config admin/vite.config.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "axios": "^1.9.0",
+    "cron-parser": "^5.5.0",
     "dotenv": "^16.4.5",
+    "pinia": "^3.0.3",
     "pino": "^9.3.2",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
     "@types/ws": "^8.5.13",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "less": "^4.6.4",
+    "tsup": "^8.5.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vite": "^7.1.5"
   }
 }
