@@ -19,7 +19,7 @@ test('do not leak legacy key to a custom endpoint',()=>{
  assert.throws(()=>resolveApiConfig({DEEPSEEK_API_KEY:'legacy',CODING_API_BASE_URL:'https://code.example.com/v1'}),/CODING_API_KEY/);
 });
 test('review API at another origin requires its own key',()=>{
- assert.throws(()=>resolveApiConfig({CODING_API_KEY:'secret',REVIEW_API_BASE_URL:'https://review.example.com/v1'}),/REVIEW_API_KEY/);
+ assert.throws(()=>resolveApiConfig({CODING_API_BASE_URL:'https://code.example.com/v1',CODING_API_KEY:'secret',REVIEW_API_BASE_URL:'https://review.example.com/v1'}),/REVIEW_API_KEY/);
 });
 test('reject insecure or credential-bearing endpoints',()=>{
  for(const u of ['http://example.com/v1','https://user:pass@example.com/v1','https://example.com/v1?token=secret','https://example.com/chat/completions']) {
