@@ -5,6 +5,7 @@ export * from './database/schema/index.js';
 export * from './identity/identity-service.js';
 export * from './identity/disclosure-policy.js';
 export * from './conversations/chat-session-service.js';
+export * from './conversations/local-chat-service.js';
 export * from './memory/memory-read-service.js';
 export * from './memory/memory-lifecycle-service.js';
 export * from './models/chat-gateway.js';

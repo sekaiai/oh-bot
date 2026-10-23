@@ -269,6 +269,10 @@ test('lease writes validate expiry after waiting for PostgreSQL row locks', asyn
         await locker.query('BEGIN');
         await locker.query(`SELECT id FROM companion.${table} WHERE id = $1 FOR UPDATE`,[rowId]);
         pending=operation();
+        // The expected lease_lost may happen before the lock holder rolls back below.
+        // Attach a handler now to avoid a transient process-level unhandled rejection;
+        // the original promise is still returned and asserted by assert.rejects.
+        void pending.catch(()=>undefined);
         let waiting=false;
         for(let attempt=0;attempt<250;attempt+=1){
           const result=await database.pool.query<{waiting:boolean}>(

@@ -90,3 +90,13 @@ F4b记忆来源、更正与遗忘账本已完成并通过独立复审PASS：管�
 - 在专用 PostgreSQL 测试数据库上执行 `.github/codex/check.sh`：构建、类型检查、基础测试、29 项集成测试、健康检查、启动检查，以及自动发现的 71 项 Companion 测试全部通过；根目录 `codex:check` 通过。
 - M1b1 新增 3 项 PostgreSQL 测试覆盖身份隔离、多轮历史、伪造证据拒绝、重复事件幂等和重放冲突。
 - 不导入旧分支的聊天记录、运行数据或凭据；不恢复已暂停的自动编码工作流。CLI/模型历史接线和真实 QQ/模型验收仍未完成。
+
+## M1b2：持久化本地终端聊天（实现与 fixture 验证，待控制器验收）
+
+- `LocalChatService` 在可信 evidence 校验后先取得 PostgreSQL session try-lock，再接受入站消息；忙碌时不会写入额外用户消息。它使用 `LocalChatSessionService` 授权/恢复历史、`TurnService` claim/persist/fail 围栏；只在回复事务提交后向终端返回内容。已完成 event replay 返回已存回复，失败回复保留失败 turn，不创建 assistant。
+- `--persistent` 显式启用数据库模式，要求 `COMPANION_DATABASE_URL` 和手动迁移；不配置时原有内存 CLI 保持可用。`--session-file` profile 严格使用 `local-cli:` 合成 identity、随机 character/user/channel 标识、专用 0600 文件；它属于当前 OS 账户的本地沙盒，不表示 QQ 登录或远端身份核验。
+- LocalChatService 不处理 outbox 发送；合成会话照常写入 pending delivery，但此 CLI 不启动 worker 或 QQ sender，不把终端输出当作 QQ 回执。
+- 已添加 PG 集成/child-process fixture：已覆盖回复持久化和 fresh-process 恢复、重复 event 不重复生成、忙碌并发在 acceptance 前失败、不同本地 profile 历史隔离、伪造与不匹配 evidence 的 provider 零调用、provider 失败后的锁释放、profile 重启/权限/篡改拒绝、等时间戳 200 条消息边界及 system prompt 限额。fixture 不代表真实模型 API 或 QQ 验收。
+- 目标测试（`source /workspace/oh-bot-setup/env.sh && pnpm --dir packages/companion exec tsx --test --test-concurrency=1 test/chat-endpoint.test.ts test/chat-gateway.test.ts test/chat-cli.test.ts test/chat-session.integration.test.ts test/local-profile.test.ts test/local-chat.integration.test.ts test/local-chat-cli.integration.test.ts`）最终 31/31 通过、0 skipped；M1b2 integration child/profile/service 子集另 10/10 通过。`pnpm --dir packages/companion typecheck`、`pnpm --dir packages/companion build` 通过。
+- `.github/codex/check.sh` 复跑通过，完整自动发现矩阵 78/78、0 skipped；Companion/compatibility 单测各 14/14，顺序 PG 集成 29/29，health 1/1，startup 4/4，根包 typecheck/build/admin build 通过，最终退出码 0。第一次矩阵运行中既有 lock-wait 测试暴露了预期拒绝在断言安装前短暂未处理；单测隔离重跑通过后，仅在测试 helper 上立即附加 rejection observer（仍保留原始 `assert.rejects`），再跑全矩阵通过。完整日志保存在 `/workspace/oh-bot-work/m1b2/full-check.log`。
+- M1b2 复选框保持未勾选，等待控制器审查与最终验收。

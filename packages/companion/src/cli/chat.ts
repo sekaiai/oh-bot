@@ -1,6 +1,8 @@
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import {
   loadChatProviderConfig,
   ModelGatewayError,
@@ -8,15 +10,23 @@ import {
   type ChatMessage,
   type ChatReply,
 } from '../models/chat-gateway.js';
+import { createDatabase, loadDatabaseConfig } from '../database/database.js';
+import { IdentityService } from '../identity/identity-service.js';
+import { createVerifiedChannelEvidence } from '../identity/trust.js';
+import { LocalChatSessionService } from '../conversations/chat-session-service.js';
+import { LocalChatService } from '../conversations/local-chat-service.js';
+import { loadOrCreateLocalProfile, ensureLocalCharacter } from './local-profile.js';
+import { CompanionError } from '../transactions/errors.js';
 
 const USAGE = [
-  'usage: pnpm exec tsx packages/companion/src/cli/chat.ts [--system <text>] [--max-turns <n>] [--temperature <n>] [--verbose]',
+  'usage: pnpm exec tsx packages/companion/src/cli/chat.ts [--persistent] [--session-file <path>] [--system <text>] [--max-turns <n>] [--temperature <n>] [--verbose]',
   '',
   'Local development terminal chat for the companion model gateway.',
   'Requires explicit business chat configuration:',
   '  COMPANION_CHAT_API_URL   OpenAI-compatible base URL or /chat/completions endpoint',
   '  COMPANION_CHAT_API_KEY   provider API key (never printed)',
   '  COMPANION_CHAT_MODEL     provider model name',
+  'Persistent mode also requires COMPANION_DATABASE_URL and an explicit prior `pnpm --dir packages/companion db:migrate`.',
 ].join('\n');
 
 type CliOptions = {
@@ -24,6 +34,8 @@ type CliOptions = {
   maxTurns?: number;
   temperature?: number;
   verbose: boolean;
+  persistent: boolean;
+  sessionFile?: string;
 };
 
 const MAX_MESSAGE_CHARS = 32_000;
@@ -31,7 +43,7 @@ const MAX_MESSAGE_CHARS = 32_000;
 class UsageError extends Error {}
 
 function parseArgs(argv: readonly string[]): CliOptions | 'help' {
-  const options: CliOptions = { verbose: false };
+  const options: CliOptions = { verbose: false, persistent: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     switch (arg) {
@@ -41,6 +53,15 @@ function parseArgs(argv: readonly string[]): CliOptions | 'help' {
       case '--verbose':
         options.verbose = true;
         break;
+      case '--persistent':
+        options.persistent = true;
+        break;
+      case '--session-file': {
+        const value = argv[++index];
+        if (!value || value.length > 4096) throw new UsageError();
+        options.sessionFile = value;
+        break;
+      }
       case '--system': {
         const value = argv[++index];
         if (value === undefined || value.length === 0 || value.length > MAX_MESSAGE_CHARS) throw new UsageError();
@@ -70,6 +91,7 @@ function parseArgs(argv: readonly string[]): CliOptions | 'help' {
 
 function failureCode(error: unknown): string {
   if (error instanceof ModelGatewayError) return error.code;
+  if (error instanceof CompanionError) return error.code;
   return 'chat_terminal_failed';
 }
 
@@ -105,6 +127,26 @@ async function main(): Promise<number> {
   const messages: ChatMessage[] = [];
   if (options.system) messages.push({ role: 'system', content: options.system });
 
+  let database: ReturnType<typeof createDatabase> | undefined;
+  let localChat: LocalChatService | undefined;
+  let profile: Awaited<ReturnType<typeof loadOrCreateLocalProfile>> | undefined;
+  let evidence: ReturnType<typeof createVerifiedChannelEvidence> | undefined;
+  if (options.persistent) {
+    try {
+      profile = await loadOrCreateLocalProfile(resolve(options.sessionFile ?? '.local/companion-profile.json'));
+      database = createDatabase(loadDatabaseConfig(process.env).databaseUrl);
+      await ensureLocalCharacter(database, profile);
+      const identity = new IdentityService(database);
+      localChat = new LocalChatService(new LocalChatSessionService(database, identity), database, gateway);
+      evidence = createVerifiedChannelEvidence('qq', profile.channelId, profile.userId, 'private');
+    } catch (error) {
+      if (database) await database.close().catch(() => undefined);
+      const code = error instanceof Error && ['local_profile_invalid', 'local_profile_unavailable'].includes(error.message)
+        ? error.message : process.env.COMPANION_DATABASE_URL ? 'persistent_chat_unavailable' : 'database_not_configured';
+      output.write(`error: ${code}\n`);
+      return 1;
+    }
+  }
   const terminal = createInterface({ input, output });
   let turns = 0;
   try {
@@ -122,19 +164,24 @@ async function main(): Promise<number> {
         output.write(`error: message_too_long (max ${MAX_MESSAGE_CHARS} characters)\n`);
         continue;
       }
-      messages.push({ role: 'user', content: text });
       let reply: ChatReply;
       try {
-        reply = await gateway.complete({
-          messages,
-          ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
-        });
+        if (localChat && profile && evidence) {
+          const result = await localChat.handle(profile.characterId, {
+            platform: 'qq', eventId: `local-cli:event:${randomUUID()}`, senderPlatformId: profile.userId,
+            conversationPlatformId: profile.channelId, conversationKind: 'private', text,
+            timestamp: new Date().toISOString(), participantPlatformIds: [], participantsComplete: false,
+          }, evidence, { ...(options.system === undefined ? {} : { system: options.system }), ...(options.temperature === undefined ? {} : { temperature: options.temperature }) });
+          reply = { text: result.text, model: target.model, finishReason: null, usage: null };
+        } else {
+          messages.push({ role: 'user', content: text });
+          reply = await gateway.complete({ messages, ...(options.temperature === undefined ? {} : { temperature: options.temperature }) });
+          messages.push({ role: 'assistant', content: reply.text });
+        }
       } catch (error) {
-        messages.pop();
         printFailure(error);
         return 1;
       }
-      messages.push({ role: 'assistant', content: reply.text });
       output.write(`bot> ${reply.text}\n`);
       if (options.verbose) {
         const usage = reply.usage
@@ -147,6 +194,7 @@ async function main(): Promise<number> {
     return 0;
   } finally {
     terminal.close();
+    if (database) await database.close().catch(() => undefined);
   }
 }
 

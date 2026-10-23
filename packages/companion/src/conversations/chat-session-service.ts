@@ -1,7 +1,7 @@
-import { desc, and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { desc, and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../database/database.js';
-import { conversations, messages } from '../database/schema/index.js';
+import { conversations, messages, turns } from '../database/schema/index.js';
 import {
   inboundEventSchema,
   type ConversationKind,
@@ -139,14 +139,25 @@ export class LocalChatSessionService {
       platformEventId: messages.platformEventId,
       occurredAt: messages.occurredAt,
       receivedAt: messages.receivedAt,
-    }).from(messages).where(and(
+    }).from(messages).leftJoin(turns, and(
+      eq(turns.conversationId, messages.conversationId),
+      or(
+        eq(turns.inboundMessageId, messages.id),
+        and(eq(messages.role, 'assistant'), sql`${messages.platformEventId} = 'generated:' || ${turns.id}::text`),
+      ),
+    )).where(and(
       eq(messages.conversationId, session.conversationId),
       isNull(messages.deletedAt),
       or(
         isNull(messages.personId),
         inArray(messages.personId, [...session.linkedPersonIds]),
       ),
-    )).orderBy(desc(messages.receivedAt), desc(messages.id)).limit(parsedOptions.data.limit);
+    )).orderBy(
+      desc(sql`coalesce(${turns.createdAt}, ${messages.receivedAt})`),
+      desc(sql`coalesce(${turns.id}::text, ${messages.platformEventId})`),
+      desc(sql`case when ${messages.role} = 'assistant' then 1 else 0 end`),
+      desc(messages.id),
+    ).limit(parsedOptions.data.limit);
 
     const ordered = [...rows].reverse().map((row) => Object.freeze({
       messageId: row.id,

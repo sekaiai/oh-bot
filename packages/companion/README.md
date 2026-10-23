@@ -56,7 +56,7 @@ Placeholder values (`<...>`, `${...}`, `change-me`, `your...`, `replace...`) are
 
 ### Local terminal chat (development only)
 
-The entry point is `src/cli/chat.ts`. It is local-only, keeps conversation history in memory, and is **not** an authenticated server endpoint. Use the existing `tsx` dev dependency; no package script is added.
+The entry point is `src/cli/chat.ts`. By default it is local-only and keeps history in memory. `--persistent` opts into a private PostgreSQL-backed sandbox; neither mode is an authenticated server endpoint. Use the existing `tsx` dev dependency; no package script is added.
 
 ```bash
 # 1. Export explicit business chat configuration (do not commit real keys)
@@ -72,13 +72,32 @@ pnpm exec tsx packages/companion/src/cli/chat.ts --system "你是一个稳定的
   --temperature 0.7 --max-turns 10 --verbose
 ```
 
+Persistent mode uses one private local sandbox profile and requires a database URL. Apply migrations explicitly before first use; startup never migrates the schema:
+
+```bash
+export COMPANION_DATABASE_URL="postgres://localhost/oh_bot_dev"
+pnpm --dir packages/companion db:migrate
+pnpm exec tsx packages/companion/src/cli/chat.ts --persistent
+# Optional: choose a different private profile file (created mode 0600)
+pnpm exec tsx packages/companion/src/cli/chat.ts --persistent --session-file .local/second-profile.json
+```
+
+The profile contains random synthetic identity values in the reserved `local-cli:` namespace and a dedicated character ID. It is owned by the local OS account, is not evidence that a remote QQ account authenticated, and must never be wired to a real QQ sender. The default `.local/companion-profile.json` is ignored by Git. Local turns use the normal pending outbox records, but this CLI does not start a worker or dispatch QQ messages; printed output means the answer committed to local PostgreSQL, not that a platform delivered it.
+
 Type a message and press enter; `/exit` or `/quit` ends the session. Without the three variables the CLI exits with `error: model_not_configured` and does not contact any provider. Provider failures print a stable code (for example `error: model_unauthorized`) and exit non-zero.
 
 **Verification status:** the gateway and CLI are covered by HTTP fixture tests (`test/chat-endpoint.test.ts`, `test/chat-gateway.test.ts`, `test/chat-cli.test.ts`) that use a local `node:http` server. No live provider credentials are configured in this environment, so a real third-party chat completion is **not** verified. Passing fixture tests must not be reported as live API acceptance.
 
+### M1b2 limits
+
+- Persistent history is authorized by the CLI's in-process trusted channel evidence and private conversation membership. No user/person/character ID flags are exposed for choosing history.
+- Persistent mode serializes each trusted session across processes, uses fenced turn claims, and recovers a completed replay from its saved assistant message without another model request. A failed or in-progress replay returns a stable error.
+- The provider receives at most 200 messages including an optional system prompt. History is ordered by turn creation with a deterministic tie-break and user-before-assistant ordering within a turn.
+- The local sandbox is for one OS account and development only. It does not establish remote QQ authentication or configure a QQ sender.
+
 ### M1a limits
 
-- History is per-process memory only; persistent, identity-scoped history is M1b.
+- Without `--persistent`, history is per-process memory only.
 - No persona persistence, relationship state, memory recall, tool calls, streaming, or retries belong to this task.
 - The gateway does not implement LangChain/LangGraph integration; that remains F5.
 
@@ -107,4 +126,16 @@ CORE_TEST_DATABASE_URL=postgres://localhost/oh_bot_core_v2_compat \
 ```
 
 The test covers two verified identities with isolated multi-turn histories, forged/cloned evidence, forged `ActorContext`, caller-supplied person/user claims, foreign-person message filtering, duplicate-event idempotency, and replay conflicts. It requires a real PostgreSQL database; no live model or QQ connection is used. M1b1 does not add a CLI, network service, or package script.
+
+M1b2 persistent chat verification uses the same isolated PostgreSQL database and local HTTP fixture (no live provider/QQ call):
+
+```bash
+source /workspace/oh-bot-setup/env.sh
+pnpm --dir packages/companion exec tsx --test --test-concurrency=1 \
+  test/chat-endpoint.test.ts test/chat-gateway.test.ts test/chat-cli.test.ts \
+  test/chat-session.integration.test.ts test/local-profile.test.ts \
+  test/local-chat.integration.test.ts test/local-chat-cli.integration.test.ts
+```
+
+The integration tests include a real child-process restart with the same profile, per-profile isolation, replay idempotency, authorization failures before provider calls, concurrent rejection before acceptance, provider-failure lock release, and equal-timestamp bounded history. Database test names are constrained to isolated `_compat` databases by the shared helpers.
 
