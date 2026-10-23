@@ -67,10 +67,9 @@ export async function integrate() {
       report(lane.name+': blocked; candidate contains files outside its isolated scope');
       continue;
     }
-    let merging=false;
+    let merging=true;
     try {
       git(['merge','--no-commit','--no-ff',candidate]);
-      merging=true;
       snapshotAndCheck();
       // A non-force push rejects concurrent updates to the target.
       git(['-c','user.name=oh-bot automation','-c','user.email=4927411+sekaiai@users.noreply.github.com',
