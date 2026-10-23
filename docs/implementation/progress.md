@@ -1,5 +1,13 @@
 # 实施进度
 
+## 代码完成与离线验证（2026-10-24）
+
+原路线剩余 M2a–M3b、F4b–F8d 的代码已补齐，持久 CLI 与 worker 接入统一图编排，身份/来源/删除/预算/发信保护已接通。完整 Companion 测试 160/160，另新增索引运行时定向测试通过；新管理端 32/32、兼容层 14/14，类型、构建与隔离容器健康检查通过。
+
+详细范围与证据见 [完成记录](completion.md)、[启动说明](startup.md) 和 [55 场景映射](acceptance-map.md)。真实模型、QQ、生产部署、异机灾备和人工表达评分尚未执行，不声称 55 场景全部通过。自动编码工作流继续保持暂停。
+
+以下保留历史实施记录。
+
 设计：用户 oh-bot-companion-design-2026-10-21.md v3.1。
 计划：docs/superpowers/plans/2026-10-22-companion-compatibility.md。
 基线：dev 3d849ad；本地分支 feat/companion-v3。

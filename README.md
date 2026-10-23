@@ -1,6 +1,6 @@
 # oh-bot
 
-> **本地开发说明（2026-10-23）**：`main` 现包含原有 QQ Bot + Vue 管理端、独立 `packages/companion` 后端基础模块及 `packages/compatibility` 兼容性实验。两条运行链路尚未打通。GitHub 无人值守编码已暂停，CI 仅执行测试。
+> **本地开发说明（2026-10-23）**：仓库保留原有 QQ Bot + Vue 管理端，并提供独立的 Companion API、worker、持久化终端聊天和可选 OneBot 通道。Companion 的 QQ、Mem0 和主动联系均默认关闭；尚未执行真实 QQ 或生产模型验收。
 
 ## 快速开始
 
@@ -17,9 +17,10 @@ pnpm check
 
 - 原 QQ Bot：配置 `.env` 的 NapCat 和模型 API，运行 `pnpm dev`；管理 UI：`pnpm admin:dev`。
 - 新 Companion 基础包：`pnpm --filter @oh-bot/companion typecheck`、`pnpm --filter @oh-bot/companion build`、`pnpm --filter @oh-bot/companion test`。
-- 新 Companion 终端模型聊天：明确设置 `COMPANION_CHAT_API_URL`、`COMPANION_CHAT_API_KEY`、`COMPANION_CHAT_MODEL`，再运行 `pnpm exec tsx packages/companion/src/cli/chat.ts`；当前终端历史仅在进程内。
+- Companion 持久化本地终端聊天：按 [Companion 启动说明](docs/implementation/startup.md) 配置 PostgreSQL、设置业务模型 `COMPANION_CHAT_*`，执行明确的一次性 `--setup` 后运行 `pnpm exec tsx packages/companion/src/cli/chat.ts --persistent --session-file .local/companion-profile.json`。persona 和记忆仅在完成相应显式配置后启用。
+- Companion 服务：同一启动说明记录 API、worker、OneBot、Mem0、模型 smoke、备份恢复和验收边界。`COMPANION_ONEBOT_ENABLED=1` 与 `COMPANION_PROACTIVE_ENABLED=1` 才能开放真实通道和主动发送。
 - 使用 `docker/docker-compose.yml` 中的 ds2api 前，执行 `cp docker/ds2api/config.example.json docker/ds2api/config.json`，在本地配置账户和密钥。
-- PostgreSQL 集成测试与未完成事项见 [本地开发接手说明](docs/implementation/local-dev-handoff.md)。
+- PostgreSQL 集成测试与历史交接信息见 [本地开发接手说明](docs/implementation/local-dev-handoff.md)。55 个固定场景的测试映射与人工/live gate 见 [验收映射](docs/implementation/acceptance-map.md)。
 
 **不要提交运行数据**：`data/sessions.json`、`data/tasks.json`、`data/rules.json`、`data/plugins/*.json`、`docker/ds2api/config.json` 均被排除在主分支追踪之外。旧开发分支曾包含真实聊天记录与凭据，需轮换相关凭据；删除主分支文件不等于清除历史记录。
 
