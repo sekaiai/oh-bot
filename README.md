@@ -1,398 +1,142 @@
 # oh-bot
 
-> **本地开发说明（2026-10-23）**：仓库保留原有 QQ Bot + Vue 管理端，并提供独立的 Companion API、worker、持久化终端聊天和可选 OneBot 通道。Companion 的 QQ、Mem0 和主动联系均默认关闭；尚未执行真实 QQ 或生产模型验收。
+QQ 聊天机器人，保留旧版 NapCat Bot，并提供独立的 Companion：版本人格、关系、长期记忆、终端聊天和管理端。
 
-## 快速开始
+## 先选启动方式
 
-需要 Node.js 24、pnpm 11。
+| 你想做什么 | 使用入口 |
+| --- | --- |
+| 运行原有 QQ Bot、插件和旧管理端 | [旧版 Bot](#旧版-qq-bot) |
+| 本地试聊模型，无需数据库 | [终端试聊](#终端试聊无需数据库) |
+| 使用新的人格、关系、持久会话和管理端 | [Companion](#companion本地启动) |
+
+`pnpm start`、`pnpm dev` 启动的是旧版 Bot。连接同一个 QQ 账号时，只运行一条消息处理链路，避免重复回复。
+
+## 安装
+
+需要 **Node.js 24、pnpm 11.25.0**。Companion 另需 PostgreSQL 17；下面提供 Docker 启动示例。
 
 ```bash
 git clone https://github.com/sekaiai/oh-bot.git
 cd oh-bot
-cp .env.example .env
 corepack enable
+corepack prepare pnpm@11.25.0 --activate
 pnpm install --frozen-lockfile
-pnpm check
 ```
 
-- 原 QQ Bot：配置 `.env` 的 NapCat 和模型 API，运行 `pnpm dev`；管理 UI：`pnpm admin:dev`。
-- 新 Companion 基础包：`pnpm --filter @oh-bot/companion typecheck`、`pnpm --filter @oh-bot/companion build`、`pnpm --filter @oh-bot/companion test`。
-- Companion 持久化本地终端聊天：按 [Companion 启动说明](docs/implementation/startup.md) 配置 PostgreSQL、设置业务模型 `COMPANION_CHAT_*`，执行明确的一次性 `--setup` 后运行 `pnpm exec tsx packages/companion/src/cli/chat.ts --persistent --session-file .local/companion-profile.json`。persona 和记忆仅在完成相应显式配置后启用。
-- Companion 服务：同一启动说明记录 API、worker、OneBot、Mem0、模型 smoke、备份恢复和验收边界。`COMPANION_ONEBOT_ENABLED=1` 与 `COMPANION_PROACTIVE_ENABLED=1` 才能开放真实通道和主动发送。
-- 使用 `docker/docker-compose.yml` 中的 ds2api 前，执行 `cp docker/ds2api/config.example.json docker/ds2api/config.json`，在本地配置账户和密钥。
-- PostgreSQL 集成测试与历史交接信息见 [本地开发接手说明](docs/implementation/local-dev-handoff.md)。55 个固定场景的测试映射与人工/live gate 见 [验收映射](docs/implementation/acceptance-map.md)。
+以下命令均从仓库根目录执行；环境变量示例使用 Bash。
 
-**不要提交运行数据**：`data/sessions.json`、`data/tasks.json`、`data/rules.json`、`data/plugins/*.json`、`docker/ds2api/config.json` 均被排除在主分支追踪之外。旧开发分支曾包含真实聊天记录与凭据，需轮换相关凭据；删除主分支文件不等于清除历史记录。
-
----
-
-基于 NapCat WebSocket 的轻量 QQ Bot 中间层，当前已接入：
-
-- NapCat / OneBot 消息接收与发送
-- 会话上下文与回复决策
-- 基于和风天气的天气工具路由
-- 图文、图片、语音、视频的统一发送接口
-
-## 环境要求
-
-- Node.js `>= 20`
-- 一个可连接的 NapCat WebSocket 服务
-- 一个可用的 OpenAI 兼容接口
-- 如果要启用天气能力，需要和风天气 API Key
-
-## 安装与启动
+## 旧版 QQ Bot
 
 ```bash
-pnpm install
-pnpm dev
+cp .env.example .env
 ```
 
-生产构建：
+编辑 `.env`，至少配置 NapCat 的 `NAPCAT_WS_URL`、`NAPCAT_ACCESS_TOKEN`，以及模型的 `AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL`。需要管理页面时，设置自己的 `ADMIN_PASSWORD`。
 
 ```bash
-pnpm build
-pnpm start
+pnpm dev              # Bot + 管理 API，默认 3100
+# 另开终端
+pnpm admin:dev        # 旧管理页面，默认 http://127.0.0.1:5173
 ```
 
-如果同时在做后端和管理端开发，常用命令是：
+在 NapCat 登录 QQ 后，通过私聊或群聊使用机器人。天气、DS2API、富媒体及部署配置见 [旧版详细说明](docs/legacy-guide.md)。
+
+构建后运行：`pnpm build && pnpm start`；旧管理端构建：`pnpm admin:build`。
+
+## 终端试聊（无需数据库）
+
+配置你自己的 OpenAI 兼容服务：
 
 ```bash
-pnpm dev:bot
-pnpm dev:admin
-pnpm check
-pnpm codex:doctor
+export COMPANION_CHAT_API_URL='https://你的服务地址/v1'
+export COMPANION_CHAT_API_KEY='你的业务密钥'
+export COMPANION_CHAT_MODEL='实际模型名称'
+pnpm --filter @oh-bot/companion build
+node packages/companion/dist/cli/chat.js
 ```
 
-其中 `pnpm check` 会统一执行：
+输入消息开始聊天，`/exit` 退出。试验人格可追加 `--sandbox --sandbox-file .local/persona.json`，用 `/persona 你的设定` 修改。
 
-- TypeScript 类型检查
-- 后端构建
-- 管理端构建
+此模式会调用真实模型并产生费用，不保存数据库会话，也不接入 QQ。
 
-`pnpm codex:doctor` 会额外检查：
+## Companion：本地启动
 
-- 环境变量是否完整
-- 管理端是否启用
-- 媒体发送模式和临时目录配置是否匹配
-- `data/plugins/*.json` 是否存在明显缺项
+### 1. 准备数据库
 
-如果你希望一次跑完构建和诊断，可以直接执行：
+已有 PostgreSQL 17 可直接创建独立开发库；否则用 Docker：
 
 ```bash
-pnpm codex:check
+docker run -d --name oh-bot-local-db \
+  -p 127.0.0.1:5432:5432 \
+  -e POSTGRES_USER=companion \
+  -e POSTGRES_PASSWORD=local-dev-only \
+  -e POSTGRES_DB=oh_bot_local \
+  -v oh-bot-local-pg:/var/lib/postgresql/data \
+  pgvector/pgvector:pg17
 ```
 
-仓库根目录也新增了 [AGENTS.md](./AGENTS.md)，里面整理了当前项目的入口文件、运行期数据说明和对 Codex 更友好的开发约定。
+这里的密码仅用于本机开发。等待数据库启动完成；以后使用 `docker start oh-bot-local-db`，无需重复创建容器。
 
-## 环境变量
-
-主 AI 仍然固定读取 `.env`。
-插件配置会单独保存到 `data/plugins/*.json`，旧的 `data/runtime-settings.json` 仅作为兼容迁移来源。
-
-参考 [.env.example](./.env.example)：
-
-```env
-NAPCAT_WS_URL=ws://127.0.0.1:3001
-NAPCAT_ACCESS_TOKEN=
-
-AI_BASE_URL=https://api.openai.com/v1
-AI_API_KEY=
-AI_MODEL=gpt-4o-mini
-AI_TIMEOUT_MS=30000
-
-QWEATHER_API_HOST=https://devapi.qweather.com
-QWEATHER_API_KEY=
-QWEATHER_LANG=zh
-
-MAX_CONTEXT_MESSAGES=20
-LOG_LEVEL=info
-
-ADMIN_PASSWORD=change_me
-ADMIN_PORT=3100
-ADMIN_WEB_ORIGIN=http://127.0.0.1:5173
-ADMIN_SESSION_TTL_SECONDS=43200
-```
-
-如果没配置和风 Key，机器人命中天气类请求时会直接返回配置缺失提示，而不是伪造天气结果。
-
-## 插件配置
-
-管理端新增了“插件配置”页面。
-
-当前内置三个插件：
-
-- `ds2api`：默认执行层，主 AI 会按意图把普通问答、复杂分析、代码问题分发到不同模型路由
-- `qweather`：处理天气、空气质量、预警、日出日落等请求
-- `qingmeng`：处理图片、视频、语音、新闻、图片分析等外部接口能力
-
-每个插件：
-
-- 独立展示
-- 独立保存
-- 独立落盘到 `data/plugins/<plugin-id>.json`
-
-例如 `ds2api` 插件的典型配置：
-
-- Docker Compose 内部调用：`baseUrl`: `http://ds2api:5001/v1`
-- 宿主机本地调试调用：`baseUrl`: `http://127.0.0.1:10302/v1`
-- `routes[0]`: 日常对话 -> `gpt-4o`
-- `routes[1]`: 复杂分析 -> `o3`
-- `routes[2]`: 代码技术 -> `gpt-5-codex`
-
-当前流程是主 AI 先统一判断应该交给哪个插件；如果不是天气或外部接口类能力，就默认进入 `ds2api`，再从路由表里选择合适模型。
-
-## 南枝情绪人格
-
-当前回复主链路使用内置基础人格“南枝”，不再通过 `data/personas.json` 维护多套人格或会话绑定。
-
-南枝的基础设定是温和、自然、像真实朋友一样聊天的成年角色。回复默认保持 1 到 3 句话，并以 `南枝：` 开头。情绪层参考 `astrbot_plugin_affection` 的思路用 TypeScript 重写：系统会为每个用户维护好感度、他力比多、他攻击性、自力比多、自攻击性，并在生成回复前把当前情绪状态注入系统提示。
-
-运行期情绪数据默认写入：
-
-```text
-data/affection/<bot-self-id>/users.json
-data/affection/<bot-self-id>/self.json
-data/affection/config.json
-```
-
-当前支持的指令：
-
-- `/mystatus`：查看自己的情绪档案
-- `/reset_emotion [userId]`：管理员重置指定用户，未传 userId 时重置自己
-- `/reset_all_emotions`：管理员重置全部情绪档案
-
-情绪层只调节语气，不应覆盖事实回答、工具结果或安全边界。
-
-## 天气能力
-
-当前内置的是自建 `Tool Router` 方案，不依赖模型原生函数调用。
-
-处理流程：
-
-1. `ReplyEngine` 先判断这条消息是否应该回复
-2. 主 AI 判断消息应该路由到哪个插件
-3. 当路由目标是 `qweather` 时，`ToolRouter` 调用和风 GeoAPI 做地点解析
-4. 再聚合查询：
-   - 实时天气
-   - 天气预警
-   - 天气指数
-   - 空气质量
-   - 日出日落
-5. 最后把工具结果交给模型组织成自然语言回复
-
-当前支持的典型提问：
-
-- `北京天气`
-- `上海空气质量`
-- `深圳今天有预警吗`
-- `杭州紫外线指数`
-- `苏州日出时间`
-
-如果用户没有给地点，机器人会先追问城市或地区。
-
-## 富媒体发送
-
-发送层位于 [src/adapters/napcat/sender.ts](./src/adapters/napcat/sender.ts)。
-
-现在有两种调用风格：
-
-- 继续使用 `sendText()` 发送纯文本
-- 使用 `sendMessage()` / `sendRichMessage()` 发送消息段数组
-
-### 1. 纯文本
-
-```ts
-await sender.sendText({
-  chatType: 'group',
-  groupId: '123456',
-  message: '你好'
-});
-```
-
-### 2. 图文消息
-
-图文消息本质上是一条消息里组合多个消息段：
-
-```ts
-await sender.sendRichMessage({
-  chatType: 'group',
-  groupId: '123456',
-  message: [
-    { type: 'text', data: { text: '今天天气如下：\n' } },
-    { type: 'image', data: { file: 'https://example.com/weather.png' } },
-    { type: 'text', data: { text: '\n出门记得带伞。' } }
-  ]
-});
-```
-
-### 3. 图片
-
-```ts
-await sender.sendImage({
-  chatType: 'group',
-  groupId: '123456',
-  file: 'https://example.com/a.jpg'
-});
-```
-
-### 4. 语音
-
-```ts
-await sender.sendRecord({
-  chatType: 'private',
-  userId: '10001',
-  file: 'https://example.com/a.mp3'
-});
-```
-
-说明：
-
-- 这里底层发送的是 `record` 消息段
-- 这是 OneBot 语义里更常见的语音段类型
-
-### 5. 视频
-
-```ts
-await sender.sendVideo({
-  chatType: 'group',
-  groupId: '123456',
-  file: 'https://example.com/a.mp4'
-});
-```
-
-### 6. 通用发送接口
-
-如果你希望自己控制消息段，可以直接调用通用接口：
-
-```ts
-await sender.sendMessage({
-  chatType: 'group',
-  groupId: '123456',
-  message: [
-    { type: 'text', data: { text: '请看附件：' } },
-    { type: 'image', data: { file: 'https://example.com/demo.jpg' } }
-  ]
-});
-```
-
-## 代码入口
-
-- 启动入口：[src/index.ts](./src/index.ts)
-- 回复编排：[src/services/reply-engine.ts](./src/services/reply-engine.ts)
-- AI 调用：[src/services/ai-client.ts](./src/services/ai-client.ts)
-- 天气工具路由：[src/services/tool-router.ts](./src/services/tool-router.ts)
-- 和风天气客户端：[src/services/qweather-client.ts](./src/services/qweather-client.ts)
-- NapCat 发送层：[src/adapters/napcat/sender.ts](./src/adapters/napcat/sender.ts)
-
-## 注意事项
-
-- 富媒体的 `file` 当前直接透传给 NapCat，具体支持 URL、本地路径还是其他格式，取决于 NapCat 的实际能力
-- 现在的地点提取是轻量规则版，适合常见问法；复杂地名歧义场景后续可以再做候选地点澄清
-- 当前天气工具是单一内置工具，后续如果要扩成搜索、地图、新闻，建议继续沿用 `ToolRouter` 结构
-
-
-## 管理端（Vue3 + TS + Pinia）
-
-项目新增了一个独立管理端（不依赖 UI 组件库），用于：
-
-未配置 `ADMIN_PASSWORD` 时，机器人主服务仍可启动，但管理端 API 不会监听端口。
-
-- 单密码登录（`ADMIN_PASSWORD`）
-- 运行概览查看
-- 插件配置（DS2API / 和风天气）
-- `rules.json` 可视化编辑
-- 内置“南枝”基础人格与情绪档案
-- `sessions.json` 会话查询
-
-### 启动后端（含管理 API）
+### 2. 初始化并启动 API + worker
 
 ```bash
-pnpm dev
+export COMPANION_DATABASE_URL='postgresql://companion:local-dev-only@127.0.0.1:5432/oh_bot_local'
+export COMPANION_ADMIN_TOKEN="$(openssl rand -hex 32)"
+export COMPANION_ADMIN_HOST='127.0.0.1'
+export COMPANION_ADMIN_PORT='3010'
+export COMPANION_ADMIN_CORS_ORIGINS='http://127.0.0.1:5174'
+export COMPANION_ONEBOT_ENABLED='0'
+export COMPANION_PROACTIVE_ENABLED='0'
+
+pnpm --filter @oh-bot/companion build
+node packages/companion/dist/cli/start.js --setup  # 首次初始化后退出
+node packages/companion/dist/cli/start.js          # 日常启动
 ```
 
-默认管理 API 地址：`http://127.0.0.1:3100`。
+Companion **不会自动读取根目录 `.env`**，需在启动它的终端导出变量。保存好生成的管理令牌，管理页面登录时需要使用；再次启动时复用自己的令牌。
 
-### 启动管理端前端
+另开终端检查：`curl -fsS http://127.0.0.1:3010/health`。数据库就绪应返回 `status: "ready"`；worker 日志应出现 `COMPANION_WORKER_READY`。按 Ctrl+C 同时停止 API 和 worker。基础就绪不代表模型或 QQ 已连通。
+
+### 3. 打开新管理端
+
+另开终端运行：
 
 ```bash
-pnpm admin:dev
+VITE_COMPANION_ADMIN_API_BASE_URL=http://127.0.0.1:3010 \
+  pnpm --dir packages/companion-admin exec vite --host 127.0.0.1 --port 5174 --strictPort
 ```
 
-默认地址：`http://127.0.0.1:5173`。
+访问 **http://127.0.0.1:5174**，用上面的 `COMPANION_ADMIN_TOKEN` 登录。新旧管理端分别使用不同的认证和配置。
 
-### 构建管理端前端
+### 4. 使用持久聊天
+
+持久模式读取**数据库中的角色模型绑定**，仅设置 `COMPANION_CHAT_*` 不够。先按 [持久聊天配置步骤](docs/implementation/startup.md#persistent-local-chat) 完成：
+
+1. 初始化本地 session profile，取得角色 ID。
+2. 创建 `chat` 模型 profile，配置凭据引用及精确模型价格。
+3. 在管理端测试模型，再启用，并绑定到该角色；测试会产生费用，失败会停用该 profile。
+4. 发布角色人格，然后运行：
 
 ```bash
-pnpm admin:build
+node packages/companion/dist/cli/chat.js \
+  --persistent --session-file .local/companion-profile.json
 ```
 
-如需改 API 地址，可在管理端环境变量中配置：
+启动聊天的终端也要导出数据库 URL、profile 引用的业务密钥及 `COMPANION_MODEL_PRICING_JSON`。复用同一 session 文件可延续本地身份与历史。
 
-```env
-VITE_ADMIN_API_BASE_URL=http://127.0.0.1:3100
-```
+QQ、长期记忆和主动联系需要额外配置，默认关闭。接入方法见 [完整启动与运维说明](docs/implementation/startup.md)。
 
-生产部署如果通过 `docker/docker-compose.yml` 的 `admin-web` 访问管理端，前端默认使用同域 `/admin/*` API，不需要设置 `VITE_ADMIN_API_BASE_URL`。
-
-## Docker Compose 部署
-
-统一部署文件位于 `docker/docker-compose.yml`，包含 NapCat、DS2API、机器人后端、管理端静态服务。
-
-部署前在本地或 CI 构建产物：
+## 检查与更多说明
 
 ```bash
-pnpm build
-pnpm admin:build
+pnpm check                                  # 旧版类型检查和构建
+pnpm --filter @oh-bot/companion typecheck
+pnpm --filter @oh-bot/companion test          # 基础测试，非完整集成验收
 ```
 
-服务器只需要运行打包后的目录，不在服务器上构建：
+完整离线检查使用 `bash .github/codex/check.sh`，需先准备隔离测试库及 PostgreSQL 17 客户端，见 [检查环境要求](docs/implementation/startup.md#acceptance)。
 
-- `dist/`：机器人后端 bundle
-- `admin/dist/`：管理端静态文件
-- `data/`：运行数据，作为持久化目录保留
-- `docker/`：Compose、NapCat、DS2API 配置
-
-启动：
-
-```bash
-cd docker
-docker compose up -d
-```
-
-默认对外端口从 `10300` 开始依次分配：
-
-| 服务 | 环境变量 | 宿主机端口 | 容器端口 | 用途 |
-| --- | --- | ---: | ---: | --- |
-| NapCat WS | `NAPCAT_WS_HOST_PORT` | `10300` | `3001` | OneBot WebSocket |
-| NapCat Web | `NAPCAT_WEB_HOST_PORT` | `10301` | `6099` | NapCat Web 管理入口 |
-| DS2API | `DS2API_HOST_PORT` | `10302` | `5001` | OpenAI 兼容 API |
-| 管理端 Web | `ADMIN_WEB_HOST_PORT` | `10303` | `80` | oh-bot 管理页面 |
-
-NapCat Web 登录密钥由 `NAPCAT_WEBUI_TOKEN` 设置。
-
-管理端默认暴露在 `http://服务器:10303`，可通过 `ADMIN_WEB_HOST_PORT` 调整。
-
-在 Docker 网络内，DS2API 插件地址建议配置为：
-
-```text
-http://ds2api:5001/v1
-```
-
-### DS2API 自动更新
-
-默认推荐固定 `DS2API_IMAGE=ghcr.io/cjackhwang/ds2api:v3.6.1`，由 Renovate 自动提交升级 PR，合并后再部署。
-
-如果要让服务器无人值守自动拉取 DS2API 新镜像，可以把 `docker/.env` 中的 `DS2API_IMAGE` 改为：
-
-```env
-DS2API_IMAGE=ghcr.io/cjackhwang/ds2api:latest
-```
-
-然后启用 Watchtower profile：
-
-```bash
-cd docker
-docker compose --profile auto-update up -d
-```
-
-这个模式会自动更新带有 Watchtower 标签的 `napcat` 和 `ds2api` 容器；更省心，但版本变化不可通过 PR 预审。
+- [完成记录](docs/implementation/completion.md) · [55 场景验收映射](docs/implementation/acceptance-map.md)
+- 真实模型、QQ 和完整跨存储恢复仍需实际验收；离线测试通过不代表这些能力已验收。
+- 密钥、`.env`、`.local/`、聊天记录及 `data/` 运行数据请保留在本地，不要提交。

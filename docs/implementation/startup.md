@@ -74,12 +74,12 @@ Use the bearer-protected API (or the model administration panel) to complete thi
 Then start persistent chat using that same session file:
 
 ```sh
-pnpm exec tsx packages/companion/src/cli/chat.ts --persistent --session-file .local/companion-profile.json
+node packages/companion/dist/cli/chat.js --persistent --session-file .local/companion-profile.json
 ```
 
 The private session profile is a local synthetic identity scoped to the current OS account. Persistent CLI chat uses the configured character persona and authorized memory services when those are configured. It does not enable QQ or mark terminal output as a platform delivery receipt.
 
-For isolated persona calibration without a database or production identity, run `pnpm exec tsx packages/companion/src/cli/chat.ts --sandbox --sandbox-file .local/companion-sandbox/persona.json`. Use `/persona` to inspect the trial persona and `/persona <text>` to revise it. The sandbox writes only that separate file with private permissions; it does not load persistent history, identity, relationship, or memory services.
+For isolated persona calibration without a database or production identity, run `node packages/companion/dist/cli/chat.js --sandbox --sandbox-file .local/companion-sandbox/persona.json`. Use `/persona` to inspect the trial persona and `/persona <text>` to revise it. The sandbox writes only that separate file with private permissions; it does not load persistent history, identity, relationship, or memory services.
 
 ## Acceptance
 
