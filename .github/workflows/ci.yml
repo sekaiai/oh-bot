@@ -62,4 +62,19 @@ jobs:
             exit 1
           fi
       - name: Build and test with isolated PostgreSQL
-        run: bash .github/codex/check.sh
+        run: |
+          set -o pipefail
+          bash .github/codex/check.sh 2>&1 | tee "$RUNNER_TEMP/companion-check.log"
+      - name: Report offline check failure details
+        if: failure()
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'companion-check.log'
+          if path.exists():
+              lines = path.read_text(errors='replace').splitlines()
+              details = '\n'.join(lines[-120:])[-12000:]
+              escaped = details.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Offline check failure details::{escaped}')
+          PYTHON
