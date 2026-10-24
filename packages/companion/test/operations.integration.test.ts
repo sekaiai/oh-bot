@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { Client } from 'pg';
 import { eq } from 'drizzle-orm';
 import { createDatabase } from '../src/database/database.js';
+import { migrateDatabase } from '../src/database/migrate.js';
 import { characters, deletionRecords } from '../src/database/schema/index.js';
 import { MemoryGateway } from '../src/memory/memory-gateway.js';
 import { MemoryLifecycleService } from '../src/memory/memory-lifecycle-service.js';
@@ -59,6 +60,8 @@ test('PostgreSQL migration adapter and pg_dump/pg_restore work on isolated compa
     currentPhase = 'create-isolated-database';
     await manageDatabase(databaseUrl, targetDatabase, 'CREATE');
     targetCreated = true;
+    const migrationDb = createDatabase(databaseUrl);
+    try { await migrateDatabase(migrationDb); } finally { await migrationDb.close(); }
 
     const source = join(root, 'sessions.json');
     const journal = join(root, 'deletions.jsonl');
