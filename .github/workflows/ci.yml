@@ -74,7 +74,7 @@ jobs:
           path = Path(os.environ['RUNNER_TEMP']) / 'companion-check.log'
           if path.exists():
               lines = path.read_text(errors='replace').splitlines()
-              details = '\n'.join(lines[-120:])[-12000:]
+              details = '\n'.join(lines[-60:])[-3500:]
               escaped = details.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print(f'::error title=Offline check failure details::{escaped}')
           PYTHON

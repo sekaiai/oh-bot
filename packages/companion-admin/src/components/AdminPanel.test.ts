@@ -104,6 +104,9 @@ describe('AdminPanel', () => {
     await flushPromises();
     const call = fetcher.mock.calls.find(([url, init]) => String(url).endsWith(`/admin/model-profiles/${profile.id}/enabled`) && init?.method === 'PUT');
     expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ version: 6, enabled: true, auditReason: '管理员复核来源后提交' });
+    const promptOptions = vi.mocked(ElMessageBox.prompt).mock.calls[0]?.[2] as { inputValidator: (value: string) => boolean | string };
+    expect(promptOptions.inputValidator('原因')).toBe('操作原因至少需要 8 个字符');
+    expect(promptOptions.inputValidator('管理员复核来源后提交')).toBe(true);
     expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('409'));
     expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('请刷新'));
   });
@@ -139,11 +142,28 @@ describe('AdminPanel', () => {
     expect(wrapper.text()).toContain('5');
   });
 
+  it('rejects unknown HTTP 200 test statuses instead of reporting success', async () => {
+    setBearerToken('memory-token');
+    const profile = { id: 'chat-profile', version: 4, purpose: 'chat', name: '聊天', provider: 'openai' };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([profile]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: profile.id }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([profile]), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    const wrapper = mount(AdminPanel, { props: { section: section('models', '模型与工具') }, global: { plugins: [ElementPlus] } });
+    await flushPromises();
+    await wrapper.findAll('article').find((item) => item.text().includes('聊天'))!.findAll('button').find((button) => button.text().includes('测试模型'))!.trigger('click');
+    await flushPromises();
+    expect(ElMessage.error).toHaveBeenCalledWith('模型测试结果无效，请刷新后重试');
+    expect(ElMessage.success).not.toHaveBeenCalledWith('模型测试已完成');
+  });
+
   it('blocks enabling unsupported profiles while allowing an enabled profile to be disabled', async () => {
     setBearerToken('memory-token');
     const profiles = [
       { id: 'embedding-profile', version: 1, purpose: 'embedding', name: '向量', provider: 'openai', enabled: false },
-      { id: 'enabled-legacy-profile', version: 2, purpose: 'embedding', name: '已启用旧服务', provider: 'custom', enabled: true }
+      { id: 'enabled-legacy-profile', version: 2, purpose: 'embedding', name: '已启用旧服务', provider: 'custom', enabled: true },
+      { id: 'custom-chat-profile', version: 3, purpose: 'chat', name: '自定义聊天', provider: 'custom', enabled: false }
     ];
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(profiles), { status: 200 })));
     const wrapper = mount(AdminPanel, { props: { section: section('models', '模型与工具') }, global: { plugins: [ElementPlus] } });
@@ -151,6 +171,8 @@ describe('AdminPanel', () => {
     const embedding = wrapper.findAll('article').find((item) => item.text().includes('向量'))!;
     expect(embedding.findAll('button').find((button) => button.text().includes('测试模型'))!.attributes('disabled')).toBeDefined();
     expect(embedding.findAll('button').find((button) => button.text().includes('启用模型'))!.attributes('disabled')).toBeDefined();
+    const custom = wrapper.findAll('article').find((item) => item.text().includes('自定义聊天'))!;
+    expect(custom.findAll('button').find((button) => button.text().includes('测试模型'))!.attributes('disabled')).toBeDefined();
     const enabled = wrapper.findAll('article').find((item) => item.text().includes('已启用旧服务'))!;
     expect(enabled.findAll('button').find((button) => button.text().includes('禁用模型'))!.attributes('disabled')).toBeUndefined();
   });

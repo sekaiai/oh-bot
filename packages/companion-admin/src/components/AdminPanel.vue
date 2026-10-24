@@ -79,13 +79,13 @@ async function confirmDestructive(title: string): Promise<boolean> {
   catch { return false; }
 }
 async function requestAuditReason(): Promise<string | null> {
-  try { const result = await ElMessageBox.prompt('请输入操作原因，服务端会记录审计。', '审计说明', { inputType: 'textarea', inputValidator: (value) => Boolean(value?.trim()) || '请填写操作原因', confirmButtonText: '继续', cancelButtonText: '取消' }); return result.value.trim(); }
+  try { const result = await ElMessageBox.prompt('请输入操作原因，服务端会记录审计。', '审计说明', { inputType: 'textarea', inputValidator: (value) => (value?.trim().length ?? 0) >= 8 || '操作原因至少需要 8 个字符', confirmButtonText: '继续', cancelButtonText: '取消' }); return result.value.trim(); }
   catch { return null; }
 }
 async function profileAction(item: Record<string, unknown>, action: 'test' | 'enabled') {
   const id = String(item.id ?? ''); const profileVersion = Number(item.version); const purpose = String(item.purpose ?? '');
   if (!id || !Number.isInteger(profileVersion) || profileVersion < 1) { ElMessage.error('模型配置缺少有效 ID 或版本号'); return; }
-  if (action === 'test' && !['chat', 'memory', 'search'].includes(purpose)) return;
+  if (action === 'test' && (item.provider !== 'openai' || !['chat', 'memory', 'search'].includes(purpose))) return;
   const routePath = route.value?.path; const generation = profileActionGeneration;
   const current = () => generation === profileActionGeneration && route.value?.path === routePath && selected.value === '模型配置' && props.section.key === 'models';
   let body: unknown; let path: string; let method: string;
@@ -103,6 +103,7 @@ async function profileAction(item: Record<string, unknown>, action: 'test' | 'en
     const response = await api.request(path, method, body, z.record(z.string(), z.unknown()));
     if (!current()) return;
     if (action === 'test' && response.lastTestStatus === 'failed') ElMessage.error('模型测试未通过，请检查凭据、价格与服务配置');
+    else if (action === 'test' && response.lastTestStatus !== 'passed') ElMessage.error('模型测试结果无效，请刷新后重试');
     else ElMessage.success(action === 'test' ? '模型测试已完成' : '模型启用状态已更新');
     await load();
   } catch (e) {
@@ -207,7 +208,7 @@ watch(() => route.value?.path, load); onMounted(load);
             <div v-for="key in keys(item)" :key="key" class="field"><span>{{ fieldLabel(key) }}</span><strong>{{ display(item[key], key) }}</strong></div>
             <div v-if="section.key === 'memory-revisions'" class="actions"><el-button v-if="item.status === 'candidate'" size="small" type="primary" @click.stop="selectedItem(item, 'approve')">审阅并批准</el-button><el-button size="small" type="warning" @click.stop="selectedItem(item, 'correct')">更正事实</el-button><el-button size="small" type="danger" @click.stop="forgetRevision(item)">忘记此修订</el-button></div>
             <div v-if="section.key === 'memory-sources'" class="actions"><el-button size="small" type="danger" @click.stop="forgetSource(item)">删除此来源</el-button></div>
-            <div v-if="section.key === 'models' && selected === '模型配置'" class="actions"><el-button size="small" :disabled="saving || !['chat', 'memory', 'search'].includes(String(item.purpose ?? ''))" @click.stop="selectedItem(item); profileAction(item, 'test')">测试模型（可能产生费用）</el-button><el-button size="small" :type="item.enabled ? 'warning' : 'primary'" :disabled="saving || (!item.enabled && (item.provider !== 'openai' || !['chat', 'memory', 'search'].includes(String(item.purpose ?? ''))))" @click.stop="selectedItem(item); profileAction(item, 'enabled')">{{ item.enabled ? '禁用模型' : '启用模型' }}</el-button></div>
+            <div v-if="section.key === 'models' && selected === '模型配置'" class="actions"><el-button size="small" :disabled="saving || item.provider !== 'openai' || !['chat', 'memory', 'search'].includes(String(item.purpose ?? ''))" @click.stop="selectedItem(item); profileAction(item, 'test')">测试模型（可能产生费用）</el-button><el-button size="small" :type="item.enabled ? 'warning' : 'primary'" :disabled="saving || (!item.enabled && (item.provider !== 'openai' || !['chat', 'memory', 'search'].includes(String(item.purpose ?? ''))))" @click.stop="selectedItem(item); profileAction(item, 'enabled')">{{ item.enabled ? '禁用模型' : '启用模型' }}</el-button></div>
           </article>
         </div>
       </template>

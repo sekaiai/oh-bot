@@ -20,4 +20,4 @@ data/plugins/**/*.json
 docker/ds2api/config.json
 packages/companion/.env
 packages/compatibility/.env
-.local/companion-profile.json
+/.local/

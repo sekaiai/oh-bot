@@ -22,10 +22,10 @@ import { createMemoryRuntime } from '../application/memory-runtime.js';
 import { createTurnProcessor } from '../application/turn-processor.js';
 
 const USAGE = [
-  'usage: pnpm exec tsx packages/companion/src/cli/chat.ts [--persistent | --sandbox] [--session-file <path>] [--sandbox-file <path>] [--system <text>] [--max-turns <n>] [--temperature <n>] [--verbose]',
+  'usage: node packages/companion/dist/cli/chat.js [--persistent | --sandbox] [--session-file <path>] [--sandbox-file <path>] [--system <text>] [--max-turns <n>] [--temperature <n>] [--verbose]',
   '',
   'Local development terminal chat for the companion model gateway.',
-  'Requires explicit business chat configuration:',
+  'Transient and sandbox modes require explicit business chat configuration:',
   '  COMPANION_CHAT_API_URL   OpenAI-compatible base URL or /chat/completions endpoint',
   '  COMPANION_CHAT_API_KEY   provider API key (never printed)',
   '  COMPANION_CHAT_MODEL     provider model name',
