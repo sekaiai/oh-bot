@@ -109,6 +109,8 @@ VITE_COMPANION_ADMIN_API_BASE_URL=http://127.0.0.1:3010 \
 
 访问 **http://127.0.0.1:5174**，用上面的 `COMPANION_ADMIN_TOKEN` 登录。新旧管理端分别使用不同的认证和配置。
 
+登录后打开 **关系图谱**，选择 AI 角色，查看与人物的交集；点击节点或名单查看有效互动事件次数、熟悉度、信任度、关系阶段和最近互动。图谱读取真实记录，不会调用模型猜测关系，详见 [关系图谱说明](docs/implementation/relationship-graph.md)。
+
 ### 4. 使用持久聊天
 
 持久模式读取**数据库中的角色模型绑定**，仅设置 `COMPANION_CHAT_*` 不够。先按 [持久聊天配置步骤](docs/implementation/startup.md#persistent-local-chat) 完成：

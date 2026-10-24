@@ -206,6 +206,79 @@ export class AdminController {
       .limit(p.limit)
       .offset(p.offset);
   }
+  @Get("/admin/characters/:id/relationship-graph") async relationshipGraph(
+    @Param("id") id: string,
+    @Query() query: unknown,
+  ) {
+    validUuid(id);
+    parse(noQuerySchema, query);
+    const [character] = await this.database.db
+      .select({ id: characters.id, name: characters.name })
+      .from(characters)
+      .where(eq(characters.id, id))
+      .limit(1);
+    if (!character) throw new ApiError(404, "not_found");
+    const { rows } = await this.database.db.execute<{
+      personId: string;
+      displayName: string | null;
+      familiarity: number | null;
+      trust: number | null;
+      stage: string | null;
+      eventCount: number;
+      lastInteractionAt: Date | string | null;
+      isPrimaryPartner: boolean;
+    }>(sql`
+      with event_totals as (
+        select ie.person_id,
+          count(*)::int as event_count,
+          max(coalesce(m.occurred_at, m.received_at)) as last_interaction_at
+        from companion.interaction_events ie
+        join companion.messages m on m.id = ie.source_message_id
+        join companion.conversations c on c.id = m.conversation_id and c.character_id = ie.character_id
+        join companion.people p on p.id = ie.person_id and p.status = 'active'
+        where ie.character_id = ${id}::uuid
+          and ie.applied_at is not null
+          and m.deleted_at is null
+          and m.role = 'user'
+          and m.person_id = ie.person_id
+        group by ie.person_id
+      ), candidates as (
+        select rs.person_id from companion.relationship_states rs
+          join companion.people p on p.id = rs.person_id and p.status = 'active'
+          where rs.character_id = ${id}::uuid
+        union
+        select b.person_id from companion.primary_relationship_bindings b
+          join companion.people p on p.id = b.person_id and p.status = 'active'
+          where b.character_id = ${id}::uuid
+        union
+        select et.person_id from event_totals et
+      )
+      select p.id as "personId", p.display_name as "displayName",
+        rs.familiarity as "familiarity", rs.trust as "trust", rs.stage as "stage",
+        coalesce(et.event_count, 0)::int as "eventCount",
+        et.last_interaction_at as "lastInteractionAt",
+        (b.person_id is not null) as "isPrimaryPartner"
+      from candidates candidate
+      join companion.people p on p.id = candidate.person_id and p.status = 'active'
+      left join companion.relationship_states rs on rs.character_id = ${id}::uuid and rs.person_id = p.id
+      left join event_totals et on et.person_id = p.id
+      left join companion.primary_relationship_bindings b on b.character_id = ${id}::uuid and b.person_id = p.id
+      order by (b.person_id is not null) desc, coalesce(et.event_count, 0) desc,
+        et.last_interaction_at desc nulls last, p.id
+      limit 101
+    `);
+    const items = rows.slice(0, 100).map((row) => ({
+      personId: row.personId,
+      displayName: row.displayName,
+      familiarity: row.familiarity,
+      trust: row.trust,
+      stage: row.stage,
+      eventCount: row.eventCount,
+      lastInteractionAt: row.lastInteractionAt ? new Date(row.lastInteractionAt).toISOString() : null,
+      isPrimaryPartner: row.isPrimaryPartner,
+    }));
+    return { character, items, truncated: rows.length > 100 };
+  }
   @Post("/admin/characters") async createCharacter(@Body() raw: unknown) {
     const b = parse(strict({ name: z.string().trim().min(1).max(160) }), raw);
     return this.database.db.transaction(async (tx) => {

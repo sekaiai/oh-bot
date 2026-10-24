@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useAuthStore } from './stores/auth';
 import { sections } from './app/sections';
 import AdminPanel from './components/AdminPanel.vue';
+import RelationshipGraphPanel from './components/RelationshipGraphPanel.vue';
 const auth = useAuthStore(); const active = ref('overview'); const password = ref(''); const loginError = ref('');
 const current = computed(() => sections.find((section) => section.key === active.value) ?? sections[0]!);
 async function login() { loginError.value = ''; try { await auth.login(password.value); password.value = ''; } catch (error) { loginError.value = error instanceof Error ? error.message : '登录失败'; } }
@@ -19,6 +20,6 @@ onMounted(() => auth.restore());
   </main>
   <div v-else class="shell">
     <aside class="sidebar"><div class="brand"><span>南枝</span><small>陪伴系统管理端</small></div><nav aria-label="管理功能"><button v-for="section in sections" :key="section.key" :class="{ active: active === section.key }" @click="active = section.key">{{ section.label }}</button></nav><el-button class="logout" plain @click="auth.logout">退出登录</el-button></aside>
-    <div class="content"><header><span>管理工作台</span><el-tag type="success" effect="plain">已认证</el-tag></header><AdminPanel :key="current.key" :section="current" /></div>
+    <div class="content"><header><span>管理工作台</span><el-tag type="success" effect="plain">已认证</el-tag></header><RelationshipGraphPanel v-if="current.key === 'relationship-graph'" :key="current.key" :section="current" /><AdminPanel v-else :key="current.key" :section="current" /></div>
   </div>
 </template>

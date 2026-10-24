@@ -18,6 +18,7 @@ The UI accepts the companion server's existing raw-array responses for character
 | Verb | Path | Query/body | Response |
 |---|---|---|---|
 | GET | `/admin/characters` | `?limit=1..100&offset=0..1000000` | raw character array (`id`, `name`, `version`, timestamps) |
+| GET | `/admin/characters/:id/relationship-graph` | none | `{ character: { id, name }, items: [{ personId, displayName, familiarity, trust, stage, eventCount, lastInteractionAt, isPrimaryPartner }], truncated }`; each item is a live person with relationship state, a current primary binding, or an applied source-grounded interaction |
 | POST | `/admin/characters` | `{ name: string(1..160) }` | created character |
 | GET | `/admin/people` | `?limit=&offset=` | raw person array (`id`, `displayName`, `aliases`, `status`, `version`) |
 | GET | `/admin/identities` | `?limit=&offset=` | raw verified identity array |
@@ -27,6 +28,8 @@ The UI accepts the companion server's existing raw-array responses for character
 | POST | `/admin/persona/:characterId` | `{ expectedVersion: nonnegative integer, content: string(1..16000), auditReason: string(8..1000) }` | published persona version |
 | GET | `/admin/relationships` | `?personId=&characterId=&limit=&offset=` | `{ items: interactionEvents[] }` |
 | POST | `/admin/relationships` | `{ personId: uuid, characterId: uuid, event: 'conversation'|'appreciation'|'shared_experience'|'boundary_respected'|'distress'|'direct_attack'|'quoted_attack'|'refusal'|'late_reply'|'delay', sourceIds: uuid[], auditReason: string(8..1000) }` | source-grounded event or explicit error |
+
+The relationship graph returns at most 100 people, ordered by primary partner, applied event count, latest source-message time, then person ID; `truncated` reports additional matches. Erased people and deleted source messages are omitted. `eventCount` counts only events with `appliedAt` and a surviving user message whose conversation belongs to the requested character and whose person matches the event. Events without a source message do not count. Message bodies are never returned.
 
 ## Memory review and deletion
 

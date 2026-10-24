@@ -4,6 +4,7 @@ export const sections: Section[] = [
   { key: 'identities', label: '身份与角色', path: '/admin/identities', description: '可信身份绑定与角色目录' },
   { key: 'persona', label: '人格版本', path: '/admin/persona', description: '按角色查看和发布带版本校验的人格设定', writeVerb: 'POST' },
   { key: 'relationships', label: '关系事件', path: '/admin/relationships', description: '查看有来源的关系事件并提交版本化更正', writeVerb: 'POST' },
+  { key: 'relationship-graph', label: '关系图谱', path: '/admin/characters', description: '查看 AI 角色与人物之间的有效互动、关系状态和最近联系' },
   { key: 'memory-sources', label: '记忆来源', path: '/admin/memory-sources', description: '检查来源文本、范围、审核状态和出处' },
   { key: 'memory-revisions', label: '记忆修订', path: '/admin/memory-revisions', description: '审核候选、纠正事实并保留修订审计', writeVerb: 'POST' },
   { key: 'deletions', label: '删除保护', path: '/admin/deletions', description: '查看删除日志与清理作业；永久删除需二次确认', writeVerb: 'POST', destructive: true },
