@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
-import { deletionRecords, jobLogs, knowledgeClaims, memoryIndexes, memoryMappings, memoryRevisions, memorySources, memoryValidationRecords, messages, personEntities, relationshipEdges } from '../database/schema/index.js';
+import { deletionRecords, jobLogs, memoryIndexes, memoryMappings, memoryRevisions, memorySources, memoryValidationRecords, messages } from '../database/schema/index.js';
 import type { Database } from '../database/database.js';
 import type { ActorContext } from '../domain/contracts.js';
 import { isTrustedActorContext } from '../identity/trust.js';

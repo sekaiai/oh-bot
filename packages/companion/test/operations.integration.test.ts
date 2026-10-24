@@ -149,7 +149,7 @@ test('PostgreSQL migration adapter and pg_dump/pg_restore work on isolated compa
       targetDatabaseUrl: targetUrl,
       deletionJournalPath: journal,
       execute: executor,
-        replayDeletionJournal: async (restoredJournalPath, throughSequence) => {
+        replayDeletionJournal: async (restoredJournalPath) => {
         const targetDb=createDatabase(targetUrl);
         try {
           const engine={add:async()=>({results:[]}),search:async()=>({results:[]}),get:async(id:string)=>({id}),delete:async(id:string)=>{deleteCalls.push(id);},deleteHistory:async(id:string)=>{const historyDb=new Sqlite(join(assetRoot,'history.sqlite'));const result=historyDb.prepare('DELETE FROM memory_history WHERE memory_id = ?').run(id);historyDb.close();return Number(result.changes);}};

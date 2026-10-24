@@ -12,7 +12,7 @@ import { createDatabase } from '../src/database/database.js';
 import { migrateDatabase } from '../src/database/migrate.js';
 import { businessOutbox, characters, conversationMembers, conversations, deliveryOutbox, emotionStates, interactionEvents, messages, modelProfiles, modelRoleBindings, modelUsage, people, platformIdentities, relationshipStates, turns } from '../src/database/schema/index.js';
 import { startChatFixture } from './chat-fixture.js';
-import { requireCompatDatabaseUrl, uuid } from './helpers.js';
+import { requireCompatDatabaseUrl } from './helpers.js';
 
 const cliPath = fileURLToPath(new URL('../src/cli/chat.ts', import.meta.url));
 function runPersistentCli(env: NodeJS.ProcessEnv, sessionFile: string, input: string): Promise<{ code: number | null; stdout: string; stderr: string }> {

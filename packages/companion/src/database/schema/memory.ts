@@ -1,10 +1,9 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, index, integer, jsonb, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, foreignKey, index, integer, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { claimKindEnum, claimStatusEnum, companionSchema, createdAt, eventStatusEnum, id, memoryIndexStatusEnum, memorySourceStatusEnum, memoryStatusEnum, participationEnum, sourceKindEnum, validationStatusEnum, version, versionCheck, visibilityScopeColumn } from './common.js';
 import { characters, people, personEntities, bindingChallenges } from './identity.js';
 import { conversations, messages } from './timeline.js';
 import { modelProfiles } from './operations.js';
-import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export const memorySources = companionSchema.table('memory_sources', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id),
@@ -47,7 +46,7 @@ export const personIdentityLinks = companionSchema.table('person_identity_links'
 export const sharedEvents = companionSchema.table('shared_events', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id), title: text('title').notNull(), summary: text('summary'), status: eventStatusEnum('status').notNull().default('candidate'),
   sourceMessageIds: uuid('source_message_ids').array().notNull().default(sql`ARRAY[]::uuid[]`), scope: visibilityScopeColumn(), occurredAt: timestamp('occurred_at',{withTimezone:true}).notNull(), createdAt: createdAt(), version: version(),
-}, (t) => [versionCheck('shared_events_version_positive')]);
+}, () => [versionCheck('shared_events_version_positive')]);
 
 export const eventParticipants = companionSchema.table('event_participants', {
   eventId: uuid('event_id').notNull().references(() => sharedEvents.id), personId: uuid('person_id').notNull().references(() => people.id), participation: participationEnum('participation').notNull(), createdAt: createdAt(),
@@ -56,9 +55,9 @@ export const eventParticipants = companionSchema.table('event_participants', {
 export const knowledgeClaims = companionSchema.table('knowledge_claims', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id), subjectEntityId: uuid('subject_entity_id').references(() => personEntities.id), speakerPersonId: uuid('speaker_person_id').references(() => people.id), sourceId: uuid('source_id').notNull().references(() => memorySources.id),
   claimText: text('claim_text'), status: claimStatusEnum('status').notNull().default('candidate'), scope: visibilityScopeColumn(), validFrom: timestamp('valid_from',{withTimezone:true}).notNull(), validTo: timestamp('valid_to',{withTimezone:true}), createdAt: createdAt(), version: version(),
-}, (t) => [versionCheck('knowledge_claims_version_positive')]);
+}, () => [versionCheck('knowledge_claims_version_positive')]);
 
 export const disclosureRules = companionSchema.table('disclosure_rules', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id), sourceId: uuid('source_id').references(() => memorySources.id), claimId: uuid('claim_id').references(() => knowledgeClaims.id), scope: visibilityScopeColumn(),
   allowedPersonIds: uuid('allowed_person_ids').array().notNull().default(sql`ARRAY[]::uuid[]`), deniedPersonIds: uuid('denied_person_ids').array().notNull().default(sql`ARRAY[]::uuid[]`), createdAt: createdAt(), version: version(),
-}, (t) => [versionCheck('disclosure_rules_version_positive')]);
+}, () => [versionCheck('disclosure_rules_version_positive')]);

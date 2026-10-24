@@ -1,6 +1,6 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
 import { createDatabase } from '../src/database/database.js'; import { migrateDatabase } from '../src/database/migrate.js'; import { eq } from 'drizzle-orm';
-import { analyzeIncomingInteraction, RelationshipEventService } from '../src/relationships/relationship-event-service.js'; import { createVerifiedChannelEvidence,trustActorContext } from '../src/identity/trust.js';
+import { analyzeIncomingInteraction, RelationshipEventService } from '../src/relationships/relationship-event-service.js'; import { trustActorContext } from '../src/identity/trust.js';
 import { characters,people,platformIdentities,conversations,conversationMembers,messages,interactionEvents,relationshipStates,emotionStates,personIdentityLinks } from '../src/database/schema/index.js'; import { uuid,requireCompatDatabaseUrl } from './helpers.js';
 test('relationship events are source validated, deterministic, replay safe and never penalize delay or refusal',async()=>{
  const db=createDatabase(requireCompatDatabaseUrl()),s=uuid(),c=uuid(),p=uuid(),i=uuid(),cv=uuid(),m=uuid(); try { await migrateDatabase(db);

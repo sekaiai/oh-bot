@@ -85,7 +85,7 @@ test('record persists trusted source and asynchronous job without invoking Mem0'
     releaseSearch();
     await assert.rejects(pendingRecall, /confirmed conversation member/, 'recall rechecks membership after asynchronous search');
     await database.db.insert(conversationMembers).values({ conversationId, personId: identity.personId, confirmedAt: new Date() });
-    const failedBacklogKeys = Array.from({ length: 25 }, (_, index) => `mem0-sync:${uuid()}`);
+    const failedBacklogKeys = Array.from({ length: 25 }, () => `mem0-sync:${uuid()}`);
     await database.db.insert(jobLogs).values(failedBacklogKeys.map((operationKey) => ({ operationKey, queueName: 'memory_sync', status: 'failed' as const, attempts: 8, nextRunAt: new Date(Date.now() + 60_000) })));
     const workerResults = await Promise.all([gateway.processPending(), gateway.processPending()]);
     assert.equal(workerResults.length, 2);

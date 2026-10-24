@@ -131,7 +131,6 @@ test('turn leases fence stale workers and generated JSON comparison ignores key 
   let personId: string | undefined;
   let identityId: string | undefined;
   let conversationId: string | undefined;
-  let inboundMessageId: string | undefined;
   let turnId: string | undefined;
   let deliveryId: string | undefined;
   let processKey: string | undefined;
@@ -150,7 +149,6 @@ test('turn leases fence stale workers and generated JSON comparison ignores key 
       conversationKind: 'private', text: 'incoming', timestamp: new Date().toISOString(), participantPlatformIds: [], participantsComplete: false,
     }, evidence);
     conversationId = accepted.conversationId;
-    inboundMessageId = accepted.messageId;
     turnId = accepted.turnId;
     processKey = `turn:${turnId}:process`;
     const turnService = new TurnService(database, { now: () => new Date(clock.value) });

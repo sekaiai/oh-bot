@@ -12,8 +12,6 @@ pnpm --filter @oh-bot/companion test:integration
 COMPANION_DATABASE_URL="$CORE_TEST_DATABASE_URL" COMPANION_WORKER_QUEUE_SETUP=1 pnpm --dir packages/companion exec node dist/worker.js
 pnpm --filter @oh-bot/companion test:health
 pnpm --filter @oh-bot/companion test:startup
-# Health/startup deliberately refuse an uninitialized pg-boss schema.
-COMPANION_DATABASE_URL="$CORE_TEST_DATABASE_URL" COMPANION_WORKER_QUEUE_SETUP=1 pnpm --dir packages/companion exec node dist/worker.js
 # Discover all companion tests, including files added by a task; database suites remain sequential.
 (
   cd packages/companion

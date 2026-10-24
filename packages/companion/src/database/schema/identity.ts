@@ -34,7 +34,7 @@ export const people = companionSchema.table('people', {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
   version: version(),
-}, (table) => [versionCheck('people_version_positive')]);
+}, () => [versionCheck('people_version_positive')]);
 
 export const platformIdentities = companionSchema.table('platform_identities', {
   id: id(),

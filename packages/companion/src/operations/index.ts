@@ -319,7 +319,7 @@ export async function createPostgresLegacyAdapter(databaseUrl: string): Promise<
 }
 
 export async function listLegacySandboxRecords(databaseUrl: string, sourceHash: string) {
-  const [{ createDatabase }, { migrationRecords }, { eq, sql }] = await Promise.all([
+  const [{ createDatabase }, { migrationRecords }, { sql }] = await Promise.all([
     import('../database/database.js'),
     import('../database/schema/operations.js'),
     import('drizzle-orm'),

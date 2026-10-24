@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import type { Database } from '../database/database.js';
 import { jobLogs } from '../database/schema/index.js';
 

@@ -300,9 +300,7 @@ async function verifyDispatcherFinalizeWaitsForLeaseExpiry(sendFails: boolean): 
   const operationKey = `f3b-finalize-lock:${uuid()}`;
   let pgBossId: string | undefined;
   let blocker: import('pg').PoolClient | undefined;
-  let releaseBlocker!: () => void;
   let lockedRow!: () => void;
-  const release = new Promise<void>((resolve) => { releaseBlocker = resolve; });
   const locked = new Promise<void>((resolve) => { lockedRow = resolve; });
   let primaryError: unknown;
   try {
@@ -363,7 +361,6 @@ async function verifyDispatcherFinalizeWaitsForLeaseExpiry(sendFails: boolean): 
     primaryError = error;
     throw error;
   } finally {
-    releaseBlocker();
     try { if (blocker) { await blocker.query('ROLLBACK'); blocker.release(); } } catch { /* preserve primary error */ }
     let cleanupError: unknown;
     try {
@@ -401,8 +398,8 @@ test('sender success, unknown, and definite failure follow distinct states; only
   try {
     await migrateDatabase(database);
     await initializeWorkerQueueSchema(databaseUrl);
-    const [character] = await database.db.insert(characters).values({ id: characterId, name: `f3b-delivery-${characterId}` }).returning();
-    const [person] = await database.db.insert(people).values({ id: personId, displayName: 'f3b delivery test' }).returning();
+    await database.db.insert(characters).values({ id: characterId, name: `f3b-delivery-${characterId}` });
+    await database.db.insert(people).values({ id: personId, displayName: 'f3b delivery test' });
     const [conversation] = await database.db.insert(conversations).values({ characterId, platform: 'qq', platformConversationId: `delivery-${uuid()}`, kind: 'private' }).returning();
     conversationId = conversation.id;
     const turnService = new TurnService(database);
@@ -443,7 +440,7 @@ test('sender success, unknown, and definite failure follow distinct states; only
       const rows = await database.db.select().from(deliveryOutbox);
       const byId = new Map(rows.map((row) => [row.id, row.status]));
       const ownLogs = await database.db.select().from(jobLogs);
-      const terminalLogs = [...deliveryIds.values()].every((id, index) => {
+      const terminalLogs = [...deliveryIds.values()].every((_, index) => {
         const log = ownLogs.find((item) => item.operationKey === `turn:${createdTurnIds[index]}:deliver`);
         return log?.status === 'completed' || log?.status === 'failed';
       });

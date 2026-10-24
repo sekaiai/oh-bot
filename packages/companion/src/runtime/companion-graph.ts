@@ -196,7 +196,6 @@ export async function createCompanionGraph(options: CompanionGraphOptions) {
       permissions: readonly string[],
       prior: BudgetUsage,
       signal: AbortSignal,
-      baselineFingerprint?: string,
     ): { context: ToolContext; usage: { toolCalls: number; steps: number; tokens: number; costUsd: number } } => {
       const budget = { ...request.budget };
       const usage = { ...prior };

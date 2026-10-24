@@ -117,7 +117,7 @@ test('terminal chat carries assistant history into the next request', async () =
   const fixture = await startChatFixture({ reply: ({ index }) => (index === 0 ? '收到，我在。' : '第二轮回复') });
   try {
     const env: NodeJS.ProcessEnv = { ...process.env };
-    for (const [key, value] of Object.entries(emptyChatEnv)) delete env[key];
+    for (const key of Object.keys(emptyChatEnv)) delete env[key];
     Object.assign(env, chatEnv(fixture.baseUrl, secret));
     const child = spawn(process.execPath, ['--import', 'tsx', cliPath, '--max-turns', '2'], {
       env,
@@ -169,7 +169,7 @@ test('terminal chat stops at --max-turns and reports provider errors without lea
   const fixture = await startChatFixture({ status: 401, errorBody: { error: { message: `echo ${secret}` } } });
   try {
     const merged: NodeJS.ProcessEnv = { ...process.env };
-    for (const [key, value] of Object.entries(emptyChatEnv)) delete merged[key];
+    for (const key of Object.keys(emptyChatEnv)) delete merged[key];
     Object.assign(merged, chatEnv(fixture.baseUrl, secret));
     const child = spawn(process.execPath, ['--import', 'tsx', cliPath, '--max-turns', '3'], {
       env: merged,
@@ -211,7 +211,7 @@ test('terminal chat stops cleanly once --max-turns requests complete', async () 
   const fixture = await startChatFixture();
   try {
     const merged: NodeJS.ProcessEnv = { ...process.env };
-    for (const [key, value] of Object.entries(emptyChatEnv)) delete merged[key];
+    for (const key of Object.keys(emptyChatEnv)) delete merged[key];
     Object.assign(merged, chatEnv(fixture.baseUrl, secret));
     const child = spawn(process.execPath, ['--import', 'tsx', cliPath, '--max-turns', '1'], {
       env: merged,

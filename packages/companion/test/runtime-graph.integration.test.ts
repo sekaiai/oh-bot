@@ -18,7 +18,7 @@ test('Postgres checkpoints bind actors, refresh prompt context, and resume with 
   loadPersona:async()=>{if(failPersonaOnce){failPersonaOnce=false;throw new Error('context fixture failure');}if(pausePersona){pausePersona=false;return `${persona} ${String(interrupt('continue context'))}`;}return persona;},readMemory:async()=>{if(failMemoryOnce){failMemoryOnce=false;throw new Error('memory fixture failure');}return memories;},
   route:async({text},context)=>{routes++;if(text.includes('budgetover')){context.consume('tokens',60);context.consume('costUsd',0.6);}return text.includes('action')?{kind:'tool',name:'record_action',input:{}}:{kind:'answer'};},
   compose:async({userText,signal,context})=>{composeSignals.push(signal);if(userText.includes('budgetover')){assert.equal(context.usageSnapshot?.().tokens,60);context.consume('tokens',41);}if(hangCompose)await new Promise<void>(()=>{});if(blockCompose){composeStarted?.();await new Promise<void>(resolve=>{releaseCompose=resolve;});}return userText.includes('pause')?'resumed '+String(interrupt('resume now')):userText;},
-  deliver:async({turnId,content,operationKey})=>{seen.push(operationKey+':'+content);return {status:'staged'};},
+  deliver:async({content,operationKey})=>{seen.push(operationKey+':'+content);return {status:'staged'};},
   finalize:async()=>{finalizeCalls++;if(failFinalize){failFinalize=false;throw new Error('temporary finalize failure');}},
  }});
  try{

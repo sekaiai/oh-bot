@@ -1,12 +1,10 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
-  boolean,
   check,
   integer,
   jsonb,
   pgSchema,
-  text,
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';

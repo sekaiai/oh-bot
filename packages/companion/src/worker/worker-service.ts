@@ -18,7 +18,7 @@ function safeWorkerCode(error: unknown): string {
     ? error.message
     : 'job_failed';
 }
-async function sanitizedHandler(jobs: Job<unknown>[], handler: () => Promise<void>): Promise<void> {
+async function sanitizedHandler(_jobs: Job<unknown>[], handler: () => Promise<void>): Promise<void> {
   try {
     await handler();
   } catch (error) {

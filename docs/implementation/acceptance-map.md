@@ -45,7 +45,7 @@ This map distinguishes deterministic fixture coverage from actual product accept
 | 39 | No longitudinal test | Unrun/manual relationship-quality gate |
 | 40 | `test/admin-api.integration.test.ts`, `test/admin-extension.integration.test.ts` | Partial authorization fixture |
 | 41 | `test/tool-http-adapters.test.ts`, `test/runtime-graph.integration.test.ts` | Local HTTP adapter fixtures; live weather provider unrun |
-| 42 | `src/application/research-agent.ts` is wired; no dedicated research subgraph acceptance test yet | Unrun |
+| 42 | `src/application/research-agent.ts`, `test/research-agent.test.ts` | Partial offline fixture; fallback, source deduplication/cap, disabled/cancelled runs, and step/model budget boundaries covered; live model/search quality unrun |
 | 43 | `test/tool-http-adapters.test.ts` | Fixture; generated answer quality unrun |
 | 44 | `test/tool-http-adapters.test.ts`, `test/tool-registry.test.ts` | Partial untrusted-output fixture |
 | 45 | `test/tool-registry.test.ts`, `test/tool-run-store.integration.test.ts` | Partial budget/cancellation and durable run fixtures; deep subagent budget test unrun |

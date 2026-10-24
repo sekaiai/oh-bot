@@ -216,7 +216,6 @@ export class ProactiveCommitmentService {
       const fence = (priorOperation?.version ?? 0) + 1;
       const expiresAt = new Date(now.getTime() + leaseMs);
       const reservationKeys = reservations.map((reservation) => `${reservation.keyPrefix}${item.id}`);
-      const resultRef = JSON.stringify({ state: 'dispatching', reservationKeys });
       if (priorOperation) await tx.update(operationKeys).set({ kind: 'proactive_delivery', status: 'leased', leaseOwner: workerId, leaseExpiresAt: expiresAt, resultRef: 'dispatching', updatedAt: now, version: fence }).where(and(eq(operationKeys.key, operationKey), eq(operationKeys.version, priorOperation.version)));
       else await tx.insert(operationKeys).values({ key: operationKey, kind: 'proactive_delivery', status: 'leased', leaseOwner: workerId, leaseExpiresAt: expiresAt, resultRef: 'dispatching', version: fence, updatedAt: now });
       for (let index = 0; index < reservations.length; index++) {

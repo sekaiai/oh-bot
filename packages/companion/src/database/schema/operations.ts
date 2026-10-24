@@ -3,7 +3,6 @@ import { bigint, boolean, check, foreignKey, integer, jsonb, numeric, primaryKey
 import { agentKindEnum, agentRunStatusEnum, backupKindEnum, backupStatusEnum, commitmentStatusEnum, companionSchema, createdAt, episodeStatusEnum, id, jobStatusEnum, migrationRecordStatusEnum, modelPurposeEnum, modelTestStatusEnum, operationKeyStatusEnum, preferenceScopeEnum, relationshipStageEnum, topicStatusEnum, toolPermissionEnum, toolRunStatusEnum, triggerModeEnum, updatedAt, version, versionCheck, visibilityScopeColumn } from './common.js';
 import { characters, people } from './identity.js';
 import { conversations, messages, turns } from './timeline.js';
-import { memorySources } from './memory.js';
 
 export const emotionStates = companionSchema.table('emotion_states', {
   characterId: uuid('character_id').notNull().references(() => characters.id), personId: uuid('person_id').notNull().references(() => people.id), pleasantness: real('pleasantness').notNull().default(0), activity: real('activity').notNull().default(0.5), tension: real('tension').notNull().default(0), care: real('care').notNull().default(0.5), lastEventAt: timestamp('last_event_at',{withTimezone:true}), updatedAt: updatedAt(), version: version(),
@@ -23,15 +22,15 @@ export const interactionPreferences = companionSchema.table('interaction_prefere
 
 export const topics = companionSchema.table('topics', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id), name: text('name').notNull(), aliases: text('aliases').array().notNull().default(sql`ARRAY[]::text[]`), scope: visibilityScopeColumn(), sourceIds: uuid('source_ids').array().notNull().default(sql`ARRAY[]::uuid[]`), status: topicStatusEnum('status').notNull().default('active'), createdAt: createdAt(), version: version(),
-}, (t) => [versionCheck('topics_version_positive')]);
+}, () => [versionCheck('topics_version_positive')]);
 
 export const episodes = companionSchema.table('episodes', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id), topicId: uuid('topic_id').references(() => topics.id), summary: text('summary'), sourceIds: uuid('source_ids').array().notNull().default(sql`ARRAY[]::uuid[]`), scope: visibilityScopeColumn(), startedAt: timestamp('started_at',{withTimezone:true}).notNull(), endedAt: timestamp('ended_at',{withTimezone:true}), status: episodeStatusEnum('status').notNull().default('active'), createdAt: createdAt(), version: version(),
-}, (t) => [versionCheck('episodes_version_positive')]);
+}, () => [versionCheck('episodes_version_positive')]);
 
 export const commitments = companionSchema.table('commitments', {
   id: id(), characterId: uuid('character_id').notNull().references(() => characters.id), personId: uuid('person_id').notNull().references(() => people.id), conversationId: uuid('conversation_id').notNull().references(() => conversations.id), description: text('description'), sourceMessageId: uuid('source_message_id').notNull().references(() => messages.id), dueAt: timestamp('due_at',{withTimezone:true}), status: commitmentStatusEnum('status').notNull().default('proposed'), jobId: text('job_id'), operationKey: text('operation_key').notNull().unique(), createdAt: createdAt(), updatedAt: updatedAt(), version: version(),
-}, (t) => [versionCheck('commitments_version_positive')]);
+}, () => [versionCheck('commitments_version_positive')]);
 
 export const proactivePermissions = companionSchema.table('proactive_permissions', {
   characterId: uuid('character_id').notNull().references(() => characters.id), personId: uuid('person_id').notNull().references(() => people.id), enabled: boolean('enabled').notNull().default(false), quietStart: text('quiet_start').notNull().default('22:00'), quietEnd: text('quiet_end').notNull().default('08:00'), timeZone: text('time_zone').notNull().default('Asia/Shanghai'), maxPerDay: integer('max_per_day').notNull().default(1), updatedAt: updatedAt(), version: version(),
@@ -51,7 +50,7 @@ export const modelRoleBindings = companionSchema.table('model_role_bindings', {
 
 export const agentDefinitions = companionSchema.table('agent_definitions', {
   id: id(), name: text('name').notNull().unique(), kind: agentKindEnum('kind').notNull(), enabled: boolean('enabled').notNull().default(false), description: text('description').notNull(), inputSchema: jsonb('input_schema').notNull(), outputSchema: jsonb('output_schema').notNull(), toolNames: text('tool_names').array().notNull().default(sql`ARRAY[]::text[]`), modelProfileId: uuid('model_profile_id').references(() => modelProfiles.id), permissions: text('permissions').array().notNull().default(sql`ARRAY[]::text[]`), budget: jsonb('budget').notNull(), createdAt: createdAt(), version: version(),
-}, (t) => [versionCheck('agent_definitions_version_positive')]);
+}, () => [versionCheck('agent_definitions_version_positive')]);
 
 export const toolConfigurations = companionSchema.table('tool_configurations', {
   toolId: text('tool_id').primaryKey(),
@@ -67,15 +66,15 @@ export const agentRuns = companionSchema.table('agent_runs', {
 
 export const toolRuns = companionSchema.table('tool_runs', {
   id: id(), agentRunId: uuid('agent_run_id').references(() => agentRuns.id), turnId: uuid('turn_id').notNull().references(() => turns.id), name: text('name').notNull(), operationKey: text('operation_key').notNull().unique(), permission: toolPermissionEnum('permission').notNull(), status: toolRunStatusEnum('status').notNull().default('pending'), inputHash: text('input_hash').notNull(), result: jsonb('result'), sources: jsonb('sources').notNull().default(sql`'[]'::jsonb`), usage: jsonb('usage').notNull().default(sql`'{}'::jsonb`), errorCode: text('error_code'), createdAt: createdAt(), updatedAt: updatedAt(), version: version(),
-}, (t) => [versionCheck('tool_runs_version_positive')]);
+}, () => [versionCheck('tool_runs_version_positive')]);
 
 export const operationKeys = companionSchema.table('operation_keys', {
   key: text('key').primaryKey(), kind: text('kind').notNull(), status: operationKeyStatusEnum('status').notNull(), leaseOwner: text('lease_owner'), leaseExpiresAt: timestamp('lease_expires_at',{withTimezone:true}), resultRef: text('result_ref'), createdAt: createdAt(), updatedAt: updatedAt(), version: version(),
-}, (t) => [versionCheck('operation_keys_version_positive')]);
+}, () => [versionCheck('operation_keys_version_positive')]);
 
 export const jobLogs = companionSchema.table('job_logs', {
   id: id(), operationKey: text('operation_key').notNull().unique(), queueName: text('queue_name').notNull(), pgBossId: text('pg_boss_id'), status: jobStatusEnum('status').notNull().default('pending'), attempts: integer('attempts').notNull().default(0), errorCode: text('error_code'), nextRunAt: timestamp('next_run_at',{withTimezone:true}), leaseOwner: text('lease_owner'), leaseExpiresAt: timestamp('lease_expires_at',{withTimezone:true}), version: version(), createdAt: createdAt(), updatedAt: updatedAt(),
-}, (t) => [versionCheck('job_logs_version_positive')]);
+}, () => [versionCheck('job_logs_version_positive')]);
 
 export const migrationRecords = companionSchema.table('migration_records', {
   id: id(), sourceHash: text('source_hash').notNull().unique(), sourcePath: text('source_path').notNull(), backupManifestPath: text('backup_manifest_path').notNull(), status: migrationRecordStatusEnum('status').notNull(), counts: jsonb('counts').notNull(), errorCode: text('error_code'), createdAt: createdAt(), completedAt: timestamp('completed_at',{withTimezone:true}),
