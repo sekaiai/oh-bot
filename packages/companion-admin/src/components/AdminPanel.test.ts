@@ -72,6 +72,89 @@ describe('AdminPanel', () => {
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ version: 3, name: '聊天', provider: 'openai', baseUrl: 'https://api.example/v1', model: 'model-a', credentialRef: 'CHAT_KEY', dimensions: null, maxTokens: 1200, timeoutMs: 30000, monthlyBudgetUsd: null });
   });
 
+  it('tests a selected profile only after an explicit click with its current version', async () => {
+    setBearerToken('memory-token');
+    const profile = { id: 'chat-profile', version: 4, purpose: 'chat', name: '聊天', provider: 'openai', baseUrl: 'https://api.example/v1', model: 'model-a', credentialRef: 'CHAT_KEY', enabled: false };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([profile]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: profile.id, version: 4, lastTestStatus: 'passed' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ ...profile, lastTestStatus: 'passed' }]), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    const wrapper = mount(AdminPanel, { props: { section: section('models', '模型与工具') }, global: { plugins: [ElementPlus] } });
+    await flushPromises();
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('/test'))).toBe(false);
+    const card = wrapper.findAll('article').find((item) => item.text().includes('聊天'))!;
+    await card.findAll('button').find((button) => button.text().includes('测试模型'))!.trigger('click');
+    await flushPromises();
+    const call = fetcher.mock.calls.find(([url, init]) => String(url).endsWith(`/admin/model-profiles/${profile.id}/test`) && init?.method === 'POST');
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ version: 4 });
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/admin/model-profiles')).length).toBe(2);
+  });
+
+  it('enables a profile with the selected version and reports a 409 for refresh', async () => {
+    setBearerToken('memory-token');
+    const profile = { id: 'memory-profile', version: 6, purpose: 'memory', name: '记忆', provider: 'openai', baseUrl: 'https://api.example/v1', model: 'model-b', credentialRef: 'MEMORY_KEY', enabled: false };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([profile]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'version_conflict' }), { status: 409 }));
+    vi.stubGlobal('fetch', fetcher);
+    const wrapper = mount(AdminPanel, { props: { section: section('models', '模型与工具') }, global: { plugins: [ElementPlus] } });
+    await flushPromises();
+    await wrapper.findAll('article').find((item) => item.text().includes('记忆'))!.findAll('button').find((button) => button.text().includes('启用模型'))!.trigger('click');
+    await flushPromises();
+    const call = fetcher.mock.calls.find(([url, init]) => String(url).endsWith(`/admin/model-profiles/${profile.id}/enabled`) && init?.method === 'PUT');
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ version: 6, enabled: true, auditReason: '管理员复核来源后提交' });
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('409'));
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('请刷新'));
+  });
+
+  it('shows a profile test failure without hiding the server reason', async () => {
+    setBearerToken('memory-token');
+    const profile = { id: 'search-profile', version: 2, purpose: 'search', name: '检索', provider: 'openai', baseUrl: 'https://api.example/v1', model: 'embed-a', credentialRef: 'SEARCH_KEY' };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([profile]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'provider_unavailable' }), { status: 503 }));
+    vi.stubGlobal('fetch', fetcher);
+    const wrapper = mount(AdminPanel, { props: { section: section('models', '模型与工具') }, global: { plugins: [ElementPlus] } });
+    await flushPromises();
+    await wrapper.findAll('article').find((item) => item.text().includes('检索'))!.findAll('button').find((button) => button.text().includes('测试模型'))!.trigger('click');
+    await flushPromises();
+    expect(ElMessage.error).toHaveBeenCalledWith('provider_unavailable');
+  });
+
+  it('reports an HTTP 200 failed test status and reloads the updated profile', async () => {
+    setBearerToken('memory-token');
+    const profile = { id: 'chat-profile', version: 4, purpose: 'chat', name: '聊天', provider: 'openai', baseUrl: 'https://api.example/v1', model: 'model-a', credentialRef: 'CHAT_KEY' };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([profile]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: profile.id, version: 4, lastTestStatus: 'failed' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ ...profile, version: 5, lastTestStatus: 'failed' }]), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    const wrapper = mount(AdminPanel, { props: { section: section('models', '模型与工具') }, global: { plugins: [ElementPlus] } });
+    await flushPromises();
+    await wrapper.findAll('article').find((item) => item.text().includes('聊天'))!.findAll('button').find((button) => button.text().includes('测试模型'))!.trigger('click');
+    await flushPromises();
+    expect(ElMessage.error).toHaveBeenCalledWith('模型测试未通过，请检查凭据、价格与服务配置');
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/admin/model-profiles')).length).toBe(2);
+    expect(wrapper.text()).toContain('5');
+  });
+
+  it('blocks enabling unsupported profiles while allowing an enabled profile to be disabled', async () => {
+    setBearerToken('memory-token');
+    const profiles = [
+      { id: 'embedding-profile', version: 1, purpose: 'embedding', name: '向量', provider: 'openai', enabled: false },
+      { id: 'enabled-legacy-profile', version: 2, purpose: 'embedding', name: '已启用旧服务', provider: 'custom', enabled: true }
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(profiles), { status: 200 })));
+    const wrapper = mount(AdminPanel, { props: { section: section('models', '模型与工具') }, global: { plugins: [ElementPlus] } });
+    await flushPromises();
+    const embedding = wrapper.findAll('article').find((item) => item.text().includes('向量'))!;
+    expect(embedding.findAll('button').find((button) => button.text().includes('测试模型'))!.attributes('disabled')).toBeDefined();
+    expect(embedding.findAll('button').find((button) => button.text().includes('启用模型'))!.attributes('disabled')).toBeDefined();
+    const enabled = wrapper.findAll('article').find((item) => item.text().includes('已启用旧服务'))!;
+    expect(enabled.findAll('button').find((button) => button.text().includes('禁用模型'))!.attributes('disabled')).toBeUndefined();
+  });
+
   it('submits enabled-only agent settings using its separate expectedVersion schema', async () => {
     setBearerToken('memory-token');
     const agent = { id: '018f47b0-0c9d-7b20-9f43-7d0411ba7f92', version: 2, name: '陪伴 agent', enabled: false };

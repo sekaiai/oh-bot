@@ -29,7 +29,8 @@ const USAGE = [
   '  COMPANION_CHAT_API_URL   OpenAI-compatible base URL or /chat/completions endpoint',
   '  COMPANION_CHAT_API_KEY   provider API key (never printed)',
   '  COMPANION_CHAT_MODEL     provider model name',
-  'Persistent mode also requires COMPANION_DATABASE_URL and an explicit prior `pnpm --dir packages/companion db:migrate`.',
+  'Persistent mode requires COMPANION_DATABASE_URL, prior setup, a published persona, and an enabled database chat profile binding with explicit pricing.',
+  'COMPANION_CHAT_* configures transient/sandbox chat only; see docs/implementation/startup.md for persistent bootstrap.',
   'Sandbox mode keeps persona calibration in a separate local JSON file and never opens the companion database.',
   'In sandbox mode, use /persona <text> to set a trial persona and /persona to inspect it.',
 ].join('\n');

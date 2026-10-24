@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { Client } from 'pg';
 import { eq } from 'drizzle-orm';
 import { createDatabase } from '../src/database/database.js';
 import { characters, deletionRecords } from '../src/database/schema/index.js';
@@ -19,27 +20,44 @@ const require = createRequire(import.meta.url);
 const Sqlite = require('better-sqlite3');
 
 let currentPhase = 'setup';
-function command(binary: string, args: string[]): Promise<void> {
+function command(binary: string, args: string[], env?: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { stdio: 'ignore' });
+    const child = spawn(binary, args, { stdio: 'ignore', env: { ...process.env, ...env } });
     child.once('error', () => reject(new Error(`TEST_COMMAND_UNAVAILABLE:${currentPhase}`)));
     child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`TEST_COMMAND_FAILED:${currentPhase}`)));
   });
 }
 
-const dbContainer = 'oh-bot-onboarding-postgres';
-const sourceDatabase = 'oh_bot_ops_compat';
+const sourceDatabase = 'oh_bot_integration_compat';
+
+async function manageDatabase(databaseUrl: string, database: string, action: 'CREATE' | 'DROP') {
+  const adminUrl = new URL(databaseUrl);
+  adminUrl.pathname = '/postgres';
+  const client = new Client({ connectionString: adminUrl.toString() });
+  await client.connect();
+  try {
+    await client.query(`${action} DATABASE "${database}"${action === 'DROP' ? ' WITH (FORCE)' : ''}`);
+  } finally {
+    await client.end();
+  }
+}
 
 test('PostgreSQL migration adapter and pg_dump/pg_restore work on isolated compatibility databases', { timeout: 60_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'companion-ops-integration-'));
   const targetDatabase = `oh_bot_ops_restore_${process.pid}_compat`;
-  const databaseUrl = `postgresql://compat@127.0.0.1:5432/${sourceDatabase}`;
-  const targetUrl = `postgresql://compat@127.0.0.1:5432/${targetDatabase}`;
+  const baseUrl = process.env.CORE_TEST_DATABASE_URL;
+  if (!baseUrl) throw new Error('CORE_TEST_DATABASE_URL must be explicitly set');
+  const sourceUrl = new URL(baseUrl);
+  sourceUrl.pathname = `/${sourceDatabase}`;
+  const databaseUrl = sourceUrl.toString();
+  const targetUrlValue = new URL(databaseUrl);
+  targetUrlValue.pathname = `/${targetDatabase}`;
+  const targetUrl = targetUrlValue.toString();
   let targetCreated = false;
   let adapter: Awaited<ReturnType<typeof createPostgresLegacyAdapter>> | undefined;
   try {
     currentPhase = 'create-isolated-database';
-    await command('docker', ['exec', dbContainer, 'psql', '-U', 'compat', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', `CREATE DATABASE "${targetDatabase}"`]);
+    await manageDatabase(databaseUrl, targetDatabase, 'CREATE');
     targetCreated = true;
 
     const source = join(root, 'sessions.json');
@@ -101,32 +119,10 @@ test('PostgreSQL migration adapter and pg_dump/pg_restore work on isolated compa
     const mediaSource=join(root,'media'); await import('node:fs/promises').then(({mkdir})=>mkdir(mediaSource));
     await writeFile(join(mediaSource,'fixture.bin'),'before-forget-media');
 
-    const executor = async (binary: string, args: string[]) => {
-      if (binary === 'pg_dump') {
-        const fileIndex = args.indexOf('--file');
-        const databaseIndex = args.indexOf('--dbname');
-        const outputPath = args[fileIndex + 1]!;
-        const remotePath = `/tmp/${process.pid}-ops.dump`;
-        currentPhase = 'docker-pg-dump';
-        await command('docker', ['exec', dbContainer, 'pg_dump', '-U', 'compat', '--format=custom', '--file', remotePath, '--dbname', args[databaseIndex + 1]!]);
-        currentPhase = 'docker-copy-dump';
-        await command('docker', ['cp', `${dbContainer}:${remotePath}`, outputPath]);
-        currentPhase = 'docker-remove-dump';
-        await command('docker', ['exec', dbContainer, 'rm', '-f', remotePath]);
-        return;
-      }
-      if (binary === 'pg_restore') {
-        const dumpPath = args.at(-1)!;
-        const remotePath = `/tmp/${process.pid}-ops-restore.dump`;
-        currentPhase = 'docker-copy-restore';
-        await command('docker', ['cp', dumpPath, `${dbContainer}:${remotePath}`]);
-        currentPhase = 'docker-pg-restore';
-        await command('docker', ['exec', dbContainer, 'pg_restore', '-U', 'compat', ...args.slice(0, -1), remotePath]);
-        currentPhase = 'docker-remove-restore';
-        await command('docker', ['exec', dbContainer, 'rm', '-f', remotePath]);
-        return;
-      }
-      throw new Error('TEST_COMMAND_UNSUPPORTED');
+    const executor = async (binary: string, args: string[], env?: NodeJS.ProcessEnv) => {
+      if (binary !== 'pg_dump' && binary !== 'pg_restore') throw new Error('TEST_COMMAND_UNSUPPORTED');
+      currentPhase = binary;
+      await command(binary, args, env);
     };
     currentPhase = 'pg-dump';
     const backup = await runDatabaseBackup({
@@ -185,7 +181,7 @@ test('PostgreSQL migration adapter and pg_dump/pg_restore work on isolated compa
   } finally {
     await adapter?.close?.();
     if (targetCreated) {
-      await command('docker', ['exec', dbContainer, 'psql', '-U', 'compat', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', `DROP DATABASE "${targetDatabase}" WITH (FORCE)`]);
+      await manageDatabase(databaseUrl, targetDatabase, 'DROP');
     }
     await rm(root, { recursive: true, force: true });
   }

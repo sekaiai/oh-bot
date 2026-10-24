@@ -8,6 +8,7 @@ const token = "test-only-admin-token-that-is-longer-than-32-bytes";
 const query = {
   from: () => query,
   orderBy: () => query,
+  groupBy: async () => [],
   limit: () => query,
   offset: async () => [],
 };
@@ -58,6 +59,8 @@ test("Nest Fastify inject protects every admin route and keeps health public and
       ["GET", "/admin/model-profiles"],
       ["POST", "/admin/model-profiles"],
       ["PUT", "/admin/model-profiles/00000000-0000-4000-8000-000000000001"],
+      ["POST", "/admin/model-profiles/00000000-0000-4000-8000-000000000001/test"],
+      ["PUT", "/admin/model-profiles/00000000-0000-4000-8000-000000000001/enabled"],
       [
         "GET",
         "/admin/characters/00000000-0000-4000-8000-000000000001/model-bindings",
@@ -95,6 +98,28 @@ test("Nest Fastify inject protects every admin route and keeps health public and
       headers: { authorization: `Bearer ${token}` },
     });
     assert.equal(authorized.statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test("worker status reports worker process configuration as unknown", async () => {
+  const app = await createAdminApplication({ database, adminToken: token });
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/worker/status",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), {
+      queueSchemaReady: false,
+      jobs: {},
+      outbox: {},
+      workerProcessStatus: "unobservable_from_admin_process",
+      processorConfigured: null,
+      senderConfigured: null,
+    });
   } finally {
     await app.close();
   }

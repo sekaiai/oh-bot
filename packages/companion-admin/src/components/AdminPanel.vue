@@ -10,7 +10,7 @@ import CharactersPanel from './CharactersPanel.vue';
 const props = defineProps<{ section: Section }>();
 const loading = ref(false); const saving = ref(false); const error = ref(''); const result = ref<PanelList | PanelOverview | { personId: string | null } | null>(null);
 const selected = ref(props.section.key === 'identities' ? '角色目录' : props.section.key === 'jobs' ? '任务日志' : props.section.key === 'operations' ? '健康状态' : props.section.key === 'models' ? '模型配置' : ''); const targetId = ref(''); const version = ref(''); const reason = ref(''); const evidenceQuote = ref('');
-let listRequestGeneration = 0; let selectedRecordOperation = '';
+let listRequestGeneration = 0; let selectedRecordOperation = ''; let profileActionGeneration = 0;
 const model = ref({ name: '', provider: '', baseUrl: '', model: '', credentialRef: '', dimensions: '', maxTokens: '1024', timeoutMs: '30000', monthlyBudgetUsd: '' });
 const enabled = ref(false); const settingsText = ref('{}'); const toolApiUrl = ref(''); const toolCredentialRef = ref(''); const personId = ref(''); const characterId = ref(''); const eventKind = ref('conversation'); const sourceIds = ref(''); const commitmentText = ref(''); const sourceMessageId = ref(''); const dueAt = ref(''); const scope = ref(''); const conversationId = ref(''); const quietStart = ref(''); const quietEnd = ref(''); const timeZone = ref('UTC'); const maxPerDay = ref('1');
 const factText = ref(''); const reviewMode = ref<'approve' | 'correct'>('approve');
@@ -38,6 +38,7 @@ const listResult = computed(() => result.value && 'items' in result.value ? resu
 const hasWriteForm = computed(() => props.section.key === 'persona' || props.section.key === 'memory-revisions' || props.section.key === 'relationships' || props.section.key === 'commitments' || props.section.key === 'permissions' || (props.section.key === 'models' && Boolean(targetId.value) && selectedRecordOperation === route.value?.operation) || (props.section.key === 'operations' && (selected.value === '备份' || selected.value === '迁移')));
 
 function selectedItem(item: Record<string, unknown>, mode: 'approve' | 'correct' = 'approve') {
+  profileActionGeneration++;
   const id = String(item.id ?? ''); targetId.value = id; version.value = String(item.version ?? ''); selectedRecordOperation = route.value?.operation ?? '';
   if (props.section.key === 'operations' && selected.value === '备份') backupId.value = String(item.backupId ?? '');
   if (props.section.key === 'operations' && selected.value === '迁移') sourceId.value = String(item.sourceId ?? '');
@@ -80,6 +81,33 @@ async function confirmDestructive(title: string): Promise<boolean> {
 async function requestAuditReason(): Promise<string | null> {
   try { const result = await ElMessageBox.prompt('请输入操作原因，服务端会记录审计。', '审计说明', { inputType: 'textarea', inputValidator: (value) => Boolean(value?.trim()) || '请填写操作原因', confirmButtonText: '继续', cancelButtonText: '取消' }); return result.value.trim(); }
   catch { return null; }
+}
+async function profileAction(item: Record<string, unknown>, action: 'test' | 'enabled') {
+  const id = String(item.id ?? ''); const profileVersion = Number(item.version); const purpose = String(item.purpose ?? '');
+  if (!id || !Number.isInteger(profileVersion) || profileVersion < 1) { ElMessage.error('模型配置缺少有效 ID 或版本号'); return; }
+  if (action === 'test' && !['chat', 'memory', 'search'].includes(purpose)) return;
+  const routePath = route.value?.path; const generation = profileActionGeneration;
+  const current = () => generation === profileActionGeneration && route.value?.path === routePath && selected.value === '模型配置' && props.section.key === 'models';
+  let body: unknown; let path: string; let method: string;
+  try {
+    if (action === 'test') { method = 'POST'; path = `/admin/model-profiles/${encodeURIComponent(id)}/test`; body = parseOperationBody('model-test', { version: profileVersion }); }
+    else {
+      const auditReason = await requestAuditReason();
+      if (!auditReason || !current()) return;
+      method = 'PUT'; path = `/admin/model-profiles/${encodeURIComponent(id)}/enabled`;
+      body = parseOperationBody('model-enabled', { version: profileVersion, enabled: !Boolean(item.enabled), auditReason });
+    }
+  } catch (e) { ElMessage.error(e instanceof Error ? e.message : '模型操作内容不合法'); return; }
+  saving.value = true;
+  try {
+    const response = await api.request(path, method, body, z.record(z.string(), z.unknown()));
+    if (!current()) return;
+    if (action === 'test' && response.lastTestStatus === 'failed') ElMessage.error('模型测试未通过，请检查凭据、价格与服务配置');
+    else ElMessage.success(action === 'test' ? '模型测试已完成' : '模型启用状态已更新');
+    await load();
+  } catch (e) {
+    if (current()) ElMessage.error(e instanceof ApiError && e.status === 409 ? `记录已发生版本冲突（409 ${e.message}），请刷新后重新提交。` : e instanceof Error ? e.message : '模型操作失败');
+  } finally { saving.value = false; }
 }
 async function forgetRevision(item: Record<string, unknown>) {
   const revisionId = String(item.id ?? ''); const expectedVersion = Number(item.version);
@@ -153,7 +181,7 @@ function keys(item: Record<string, unknown>): string[] { return Object.keys(item
 const fieldLabels: Record<string, string> = { id: '记录 ID', name: '名称', status: '状态', version: '版本或 SHA-256', expectedVersion: '预期版本', backupId: '备份 ID', sourceId: '来源 ID', sourceHash: '来源 SHA-256', manifestPath: '备份清单路径', createdAt: '创建时间', updatedAt: '更新时间', personId: '人物 ID', characterId: '角色 ID', conversationId: '会话 ID', sourceIds: '来源消息 ID', sourceMessageId: '来源消息 ID', sourceText: '来源内容', sourceQuote: '来源原句', role: '发言身份', scope: '作用范围', enabled: '已启用', configured: '已配置', ready: '就绪', errorCode: '错误代码', model: '模型', provider: '服务商', credentialRef: '凭据引用', apiUrl: '工具 API 地址', dueAt: '提醒时间', quietStart: '安静时段开始', quietEnd: '安静时段结束', timeZone: '时区', maxPerDay: '每日上限', attempts: '尝试次数', queueName: '任务队列', permission: '授权范围', receipt: '发送回执', operationKey: '操作编号', threadId: '对话线程', graphVersion: '流程版本', assetCount: '资产数量', localOnly: '仅本地保存', deletionJournalSequence: '删除日志序号', sizeBytes: '文件字节数', sourceKind: '来源类型', backupManifest: '备份清单' };
 function fieldLabel(key: string): string { return fieldLabels[key] ?? key; }
 function display(value: unknown, key: string): string { const safe = safeForDisplay({ [key]: value })[key]; if (safe == null) return '—'; return typeof safe === 'object' ? JSON.stringify(safe) : String(safe); }
-watch(() => route.value?.operation, () => resetEditor());
+watch(() => route.value?.operation, () => { profileActionGeneration++; resetEditor(); });
 watch(() => route.value?.path, load); onMounted(load);
 </script>
 
@@ -179,6 +207,7 @@ watch(() => route.value?.path, load); onMounted(load);
             <div v-for="key in keys(item)" :key="key" class="field"><span>{{ fieldLabel(key) }}</span><strong>{{ display(item[key], key) }}</strong></div>
             <div v-if="section.key === 'memory-revisions'" class="actions"><el-button v-if="item.status === 'candidate'" size="small" type="primary" @click.stop="selectedItem(item, 'approve')">审阅并批准</el-button><el-button size="small" type="warning" @click.stop="selectedItem(item, 'correct')">更正事实</el-button><el-button size="small" type="danger" @click.stop="forgetRevision(item)">忘记此修订</el-button></div>
             <div v-if="section.key === 'memory-sources'" class="actions"><el-button size="small" type="danger" @click.stop="forgetSource(item)">删除此来源</el-button></div>
+            <div v-if="section.key === 'models' && selected === '模型配置'" class="actions"><el-button size="small" :disabled="saving || !['chat', 'memory', 'search'].includes(String(item.purpose ?? ''))" @click.stop="selectedItem(item); profileAction(item, 'test')">测试模型（可能产生费用）</el-button><el-button size="small" :type="item.enabled ? 'warning' : 'primary'" :disabled="saving || (!item.enabled && (item.provider !== 'openai' || !['chat', 'memory', 'search'].includes(String(item.purpose ?? ''))))" @click.stop="selectedItem(item); profileAction(item, 'enabled')">{{ item.enabled ? '禁用模型' : '启用模型' }}</el-button></div>
           </article>
         </div>
       </template>
@@ -208,5 +237,6 @@ watch(() => route.value?.path, load); onMounted(load);
     <el-form v-if="section.key === 'operations' && selected === '备份'" label-position="top" class="editor"><el-form-item label="操作"><el-select v-model="backupAction"><el-option label="验证备份" value="verify"/><el-option label="创建备份" value="create"/><el-option label="恢复备份" value="restore"/></el-select></el-form-item><el-form-item v-if="backupAction === 'restore' || backupAction === 'verify'" label="所选备份 ID"><el-input v-model="backupId" readonly /></el-form-item><el-form-item v-if="backupAction === 'restore' || backupAction === 'verify'" label="所选清单 SHA-256"><el-input v-model="version" readonly /></el-form-item><el-form-item label="审计原因"><el-input v-model="reason" /></el-form-item><el-button type="primary" :disabled="listResult?.configured === false" :loading="saving" @click="submit">提交</el-button></el-form>
     <el-form v-if="section.key === 'operations' && selected === '迁移'" label-position="top" class="editor"><el-form-item label="操作"><el-select v-model="migrationAction"><el-option label="检查迁移" value="inspect"/><el-option label="准备备份" value="backup"/><el-option label="应用迁移" value="apply"/></el-select></el-form-item><el-form-item label="所选迁移来源"><el-input v-model="sourceId" readonly /></el-form-item><el-form-item v-if="migrationAction !== 'inspect'" label="所选来源 SHA-256"><el-input v-model="version" readonly /></el-form-item><el-form-item label="审计原因"><el-input v-model="reason" /></el-form-item><el-button type="primary" :disabled="listResult?.configured === false" :loading="saving" @click="submit">提交</el-button></el-form>
     <p class="hint">凭据字段只显示引用值。页面不会保存表单或令牌到浏览器存储。</p>
+    <p v-if="section.key === 'models' && selected === '模型配置'" class="hint">测试会实际调用供应商并可能产生费用；测试失败会自动停用模型。启用仅支持 OpenAI chat、memory、search profile，且须通过测试并配置凭据与价格。</p>
   </section>
 </template>

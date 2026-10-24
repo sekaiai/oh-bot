@@ -41,6 +41,8 @@ const toolSettingsSchema = strict({
 });
 const bodies: Record<string, z.ZodTypeAny> = {
   'memory-approve': strict({ expectedVersion: positiveVersion, claimKind: z.literal('direct'), evidenceQuote: z.string().min(1).max(4000) }),
+  'model-test': strict({ version: positiveVersion }),
+  'model-enabled': strict({ version: positiveVersion, enabled: z.boolean(), auditReason: z.string().trim().min(8).max(1000) }),
   'model-update': modelProfileSchema,
   'backup-action': strict({ action: z.enum(['create', 'verify', 'restore']), backupId: z.string().min(1).max(100).optional(), expectedVersion: sha256Version.optional(), auditReason: z.string().trim().min(8).max(1000), confirm: z.literal(true) }).superRefine((body, context) => {
     if (body.action !== 'create' && !body.backupId) context.addIssue({ code: z.ZodIssueCode.custom, message: '请选择服务端列出的备份记录', path: ['backupId'] });

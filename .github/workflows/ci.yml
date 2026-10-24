@@ -37,6 +37,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+          echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: '11.25.0'
@@ -46,6 +54,7 @@ jobs:
           PGPASSWORD: compat-test-only
         run: |
           psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_worker_compat'
+          psql -h 127.0.0.1 -U compat -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE oh_bot_integration_compat'
       - name: Reject tracked runtime data
         run: |
           if git ls-files | grep -E '^(data/(sessions|tasks|rules)\.json|data/plugins/[^/]+\.json|docker/ds2api/config\.json)$'; then

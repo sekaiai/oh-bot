@@ -144,10 +144,19 @@ export class ModelProfileGateway {
     return this.complete({ ...input, profileId: this.boundProfileId });
   }
 
+  async testProfile(input: Omit<ProfileCompletionInput, 'profileId'> & ModelUsageBudget): Promise<ChatReply> {
+    if (!this.boundProfileId) throw new Error('model_not_configured');
+    return this.completeProfile({ ...input, profileId: this.boundProfileId }, true);
+  }
+
   async complete(input: ProfileCompletionInput & ModelUsageBudget): Promise<ChatReply> {
+    return this.completeProfile(input, false);
+  }
+
+  private async completeProfile(input: ProfileCompletionInput & ModelUsageBudget, allowDisabled: boolean): Promise<ChatReply> {
     const profile = this.profiles.get(input.profileId);
     if (
-      !profile || !profile.enabled || profile.purpose !== input.purpose ||
+      !profile || (!profile.enabled && !allowDisabled) || profile.purpose !== input.purpose ||
       profile.characterId !== input.characterId
     ) throw new Error('model_not_configured');
 

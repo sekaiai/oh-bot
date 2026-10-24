@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsup --config tsup.config.ts",
     "test": "tsx --test test/contracts.test.ts test/schema.test.ts test/disclosure-policy.test.ts test/admin-api.test.ts test/worker-lifecycle.test.ts",
-    "test:integration": "tsx --test --test-concurrency=1 test/database.test.ts test/identity.test.ts test/memory-reads.integration.test.ts test/memory-lifecycle.integration.test.ts test/transactions.test.ts test/admin-api.integration.test.ts test/worker.integration.test.ts test/job-attempt.integration.test.ts test/worker-recovery.integration.test.ts",
+    "test:integration": "tsx --test --test-concurrency=1 test/database.test.ts test/identity.test.ts test/memory-reads.integration.test.ts test/memory-lifecycle.integration.test.ts test/transactions.test.ts test/admin-api.integration.test.ts test/profile-admin-lifecycle.integration.test.ts test/worker.integration.test.ts test/job-attempt.integration.test.ts test/worker-recovery.integration.test.ts",
     "db:migrate": "tsx src/database/migrate-cli.ts",
     "start:admin": "node dist/main.js",
     "start:worker": "node dist/worker.js",

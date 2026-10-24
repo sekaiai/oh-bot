@@ -31,7 +31,7 @@ This map distinguishes deterministic fixture coverage from actual product accept
 | 25 | `test/memory-gateway.integration.test.ts` | Partial fixture |
 | 26 | `test/memory-index.integration.test.ts`, `test/deletion-journal.test.ts` | Partial fixture |
 | 27 | `test/operations.integration.test.ts`, `test/deletion-journal.test.ts` | Replay primitives covered; isolated restore-and-serve drill unrun |
-| 28 | `test/model-profile-gateway.test.ts`, `test/schema.test.ts` | Partial fixture |
+| 28 | `test/model-profile-gateway.test.ts`, `test/profile-admin-lifecycle.integration.test.ts`, `test/schema.test.ts` | Partial fixture; HTTP create/test/enable/bind and bound gateway, concurrent-edit CAS and failed-test disable covered; live provider unrun |
 | 29 | No end-to-end reindex/switch test | Unrun |
 | 30 | `test/memory-gateway.integration.test.ts`, `test/memory-index.integration.test.ts` | Partial degraded recall fixture |
 | 31 | `test/memory-sdk.test.ts` | Corrupt/missing store checks; volume-loss environment drill unrun |

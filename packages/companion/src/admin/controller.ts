@@ -13,6 +13,7 @@ import {
   Req,
 } from "@nestjs/common";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import type { Database } from "../database/database.js";
 import { ADMIN_DATABASE, ApiError, isAuthenticatedAdminPrincipal } from "./auth.js";
 import type { AuthenticatedAdminPrincipal } from "./auth.js";
@@ -37,6 +38,9 @@ import {
 } from "../database/schema/index.js";
 import { IdentityService } from "../identity/identity-service.js";
 import { DeliveryService } from "../transactions/delivery-service.js";
+import { createModelPriceEstimators } from "../application/model-pricing.js";
+import { ModelProfileGateway, loadProfileCredential } from "../models/profile-gateway.js";
+import { PostgresMonthlyUsageStore } from "../models/monthly-usage-store.js";
 
 const uuid = z.string().uuid();
 const pageSchema = z
@@ -439,7 +443,7 @@ export class AdminController {
         provider: z.string().trim().min(1).max(80),
         baseUrl: profileBaseUrlSchema,
         model: z.string().trim().min(1).max(160),
-        credentialRef: z.string().regex(/^[A-Z][A-Z0-9_]{1,127}$/),
+        credentialRef: z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/),
         dimensions: z.number().int().min(1).max(65536).nullable().optional(),
         maxTokens: z.number().int().min(1).max(100000).default(1024),
         timeoutMs: z.number().int().min(100).max(600000).default(30000),
@@ -542,6 +546,97 @@ export class AdminController {
       };
     });
   }
+  @Post("/admin/model-profiles/:id/test") async testProfile(
+    @Param("id") id: string,
+    @Body() raw: unknown,
+  ) {
+    validUuid(id);
+    const { version } = parse(strict({ version: z.number().int().positive() }), raw);
+    const [profile] = await this.database.db.select().from(modelProfiles)
+      .where(eq(modelProfiles.id, id)).limit(1);
+    if (!profile) throw new ApiError(404, "not_found");
+    if (profile.version !== version) throw new ApiError(409, "version_conflict");
+    if (!["chat", "memory", "search"].includes(profile.purpose)) throw new ApiError(422, "unsupported_profile_purpose");
+    if (profile.provider !== "openai") throw new ApiError(422, "unsupported_profile_provider");
+
+    const claimVersion = version + 1;
+    const [claimed] = await this.database.db.update(modelProfiles)
+      .set({ lastTestAt: null, lastTestStatus: "never", updatedAt: new Date(), version: claimVersion })
+      .where(and(eq(modelProfiles.id, id), eq(modelProfiles.version, version))).returning({ id: modelProfiles.id });
+    if (!claimed) throw new ApiError(409, "version_conflict");
+
+    let status: "passed" | "failed" = "failed";
+    const usage = { tokens: 0, costUsd: 0 };
+    try {
+      loadProfileCredential(profile, process.env);
+      const pricing = createModelPriceEstimators(process.env);
+      const messages = [{ role: "user" as const, content: "Reply OK" }];
+      const maxTokens = Math.min(profile.maxTokens, 8);
+      const budgetTokens = pricing.estimateMaxTokens(profile.model, messages, maxTokens);
+      const budgetCost = pricing.estimateMaxCost(profile.model, messages, maxTokens);
+      const characterId = randomUUID();
+      const gateway = new ModelProfileGateway([{
+        id: profile.id, characterId, purpose: profile.purpose as "chat" | "memory" | "search",
+        provider: "openai", baseUrl: profile.baseUrl, model: profile.model,
+        credentialRef: profile.credentialRef, enabled: false,
+        maxTokens, timeoutMs: profile.timeoutMs,
+        monthlyBudgetUsd: profile.monthlyBudgetUsd,
+      }], {
+        boundProfileId: profile.id,
+        ...pricing,
+        monthlyUsage: profile.monthlyBudgetUsd == null ? undefined : new PostgresMonthlyUsageStore(this.database),
+      });
+      await gateway.testProfile({
+        characterId, purpose: profile.purpose as "chat" | "memory" | "search",
+        messages,
+        budget: { maxSteps: 1, maxToolCalls: 1, maxTokens: budgetTokens, maxCostUsd: budgetCost + 0.00000001, timeoutMs: profile.timeoutMs },
+        signal: new AbortController().signal,
+        tokensUsed: 0, costUsdUsed: 0, invocationId: `admin-profile-test:${randomUUID()}`,
+        consume: (kind, amount) => { usage[kind === "tokens" ? "tokens" : "costUsd"] += amount; },
+      });
+      status = "passed";
+    } catch {
+      status = "failed";
+    }
+
+    const testedAt = new Date();
+    return this.database.db.transaction(async (tx) => {
+      const [updated] = await tx.update(modelProfiles)
+        .set({ lastTestAt: testedAt, lastTestStatus: status, enabled: status === "passed" ? profile.enabled : false, updatedAt: testedAt })
+        .where(and(eq(modelProfiles.id, id), eq(modelProfiles.version, claimVersion))).returning();
+      if (!updated) throw new ApiError(409, "version_conflict");
+      await tx.insert(auditEvents).values({
+        actorKind: "admin", actorId: "admin", action: "model_profile_tested", targetId: id,
+        metadata: { status, enabled: updated.enabled, version: updated.version, usage },
+      });
+      return { id, version: updated.version, lastTestAt: testedAt, lastTestStatus: status, usage };
+    });
+  }
+  @Put("/admin/model-profiles/:id/enabled") async setProfileEnabled(
+    @Param("id") id: string,
+    @Body() raw: unknown,
+  ) {
+    validUuid(id);
+    const b = parse(strict({ version: z.number().int().positive(), enabled: z.boolean(), auditReason: z.string().trim().min(8).max(1000) }), raw);
+    return this.database.db.transaction(async (tx) => {
+      const [profile] = await tx.select().from(modelProfiles).where(eq(modelProfiles.id, id)).for("update").limit(1);
+      if (!profile) throw new ApiError(404, "not_found");
+      if (profile.version !== b.version) throw new ApiError(409, "version_conflict");
+      if (b.enabled) {
+        if (profile.provider !== "openai" || !["chat", "memory", "search"].includes(profile.purpose)) throw new ApiError(409, "unsupported_profile_purpose");
+        if (profile.lastTestStatus !== "passed") throw new ApiError(409, "profile_test_required");
+        try { loadProfileCredential(profile, process.env); }
+        catch { throw new ApiError(409, "profile_credential_unconfigured"); }
+        try { createModelPriceEstimators(process.env).estimateMaxCost(profile.model, [{ role: "user", content: "check" }], 1); }
+        catch { throw new ApiError(409, "profile_pricing_unconfigured"); }
+      }
+      const [row] = await tx.update(modelProfiles).set({ enabled: b.enabled, version: profile.version + 1, updatedAt: new Date() })
+        .where(and(eq(modelProfiles.id, id), eq(modelProfiles.version, b.version))).returning();
+      if (!row) throw new ApiError(409, "version_conflict");
+      await tx.insert(auditEvents).values({ actorKind: "admin", actorId: "admin", action: "model_profile_enabled_changed", targetId: id, metadata: { enabled: b.enabled, version: row.version, reason: b.auditReason } });
+      return { id, enabled: row.enabled, version: row.version };
+    });
+  }
   @Get("/admin/characters/:id/model-bindings") async bindings(
     @Param("id") id: string,
     @Query() query: unknown,
@@ -615,8 +710,9 @@ export class AdminController {
       queueSchemaReady,
       jobs: Object.fromEntries(jobs.map((row) => [row.status, Number(row.count)])),
       outbox: Object.fromEntries(outbox.map((row) => [row.status, Number(row.count)])),
-      processorConfigured: false,
-      senderConfigured: false,
+      workerProcessStatus: "unobservable_from_admin_process",
+      processorConfigured: null,
+      senderConfigured: null,
     };
   }
   @Get("/admin/job-logs/:id") async jobDetail(@Param("id") id: string, @Query() query: unknown) {
